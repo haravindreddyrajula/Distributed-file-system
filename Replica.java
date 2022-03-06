@@ -1,9 +1,14 @@
+import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
 import java.io.Serializable;
+import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.nio.file.Paths;
 import java.rmi.NotBoundException;
 import java.rmi.RemoteException;
 import java.rmi.UnknownHostException;
@@ -24,7 +29,6 @@ public class Replica extends UnicastRemoteObject implements Storage, Serializabl
     private static int replicaPort;
     private String[] files;
     public Storage storage;
-    // public Storage registration;
 
     private static ServerSocket ssock;
     private static Socket socket;
@@ -42,42 +46,87 @@ public class Replica extends UnicastRemoteObject implements Storage, Serializabl
         masterPort = Integer.parseInt(args[3]);
         tcpPort = Integer.parseInt(args[4]);
 
-        // create server function: while rebinding change the service to service[1],
-        // service[2].... to distinguish
+        ssock = new ServerSocket(tcpPort);
 
         createServer(replicaIP, replicaPort);
-        getAllFiles();
+        // getAllFiles(); commented out for creating replica
         registerMaster(masterIP, masterPort);
     }
 
     private void createServer(String IP, int PORT) throws Exception, RemoteException {
-        System.setProperty("java.rmi.server.hostname", IP);
+        System.setProperty("java.rmi.server.hostname", IP); // success
 
         Registry registry = LocateRegistry.createRegistry(PORT);
         registry.rebind("Service_" + IP, new Replica());
-        Registry storageserver = LocateRegistry.getRegistry("localhost", PORT);
 
+        Registry storageserver = LocateRegistry.getRegistry("localhost", PORT);
         storage = (Storage) storageserver.lookup("Service_" + IP);
+        // System.out.println(storage.toString());
+    }
+
+    private void registerMaster(String IP, int PORT) throws Exception {
+        Registry masterServer = LocateRegistry.getRegistry(IP, PORT);
+        // System.out.println(masterServer.toString()); // success
+        Storage reg_stub = (Storage) masterServer.lookup("Master");
+        // System.out.println(reg_stub.toString());
+        reg_stub.register(replicaIP, tcpPort, files, storage); // tcpport check?
     }
 
     private void getAllFiles() throws Exception {
-        File curDir = new File(".");
-        File[] filesList = curDir.listFiles();
+
+        // current working directory using Path
+        String path = Paths.get("").toAbsolutePath().toString();
+        // System.out.println("Working Directory = " + path);
+
+        // with "." refers to the current directory
+        File curFolder = new File(".");
+
+        /**
+         * The list() method of the Java File class is used to list all the files and
+         * subdirectories present inside a directory. It returns all the files and
+         * directories as a string array.
+         * return type : Project 1, Put.java, Put.class
+         **/
+        // String[] fileList = curFolder.list();
+        /**  */
+
+        File[] filesList = curFolder.listFiles();
         ArrayList<String> list = new ArrayList<String>();
-        for (File f : filesList) {
-            if (f.isFile())
-                list.add(f.getName());
+        for (File file : filesList) {
+            // Comment file.isfile condition to get the files and directories
+            // using "path" will get absolute path of the files
+            if (file.isFile())
+                /**
+                 * file.getName() -> abc.txt
+                 * file -> .\abc.txt
+                 */
+                list.add(file.getName());
         }
         files = list.toArray(new String[list.size()]);
     }
 
-    private void registerMaster(String IP, int PORT) throws Exception {
+    // Writing file
+    public boolean write(String IP, String PORT, String path) throws UnknownHostException, IOException {
 
-        Registry masterServer = LocateRegistry.getRegistry(IP, PORT);
-        Storage registration_stub = (Storage) masterServer.lookup("Master");
+        System.out.println("Writing " + path + "in Replica ");
+        String addr = new String(IP); // ip
+        int port = Integer.parseInt(PORT);// Tcp port listening on sender (put)
 
-        // implement this in master server
-        registration_stub.register(replicaIP, tcpPort, files, storage); // tcpport check?
+        Socket socket = new Socket(InetAddress.getByName(addr), port);// crate socket
+
+        byte[] contents = new byte[10000];
+        FileOutputStream fos = new FileOutputStream(path);
+        BufferedOutputStream bos = new BufferedOutputStream(fos);
+        InputStream is = socket.getInputStream();
+        int bytesRead = 0;
+        while ((bytesRead = is.read(contents)) != -1)
+            bos.write(contents, 0, bytesRead);
+
+        bos.flush();
+        bos.close();
+        socket.close();
+        System.out.println("File saved successfully at replica");
+        return true;
     }
 
     public static void main(String args[]) throws RemoteException, NotBoundException, UnknownHostException, Exception {
@@ -145,10 +194,11 @@ public class Replica extends UnicastRemoteObject implements Storage, Serializabl
 
     }
 
-    @Override
-    public void write(String IP, String PORT, String path) throws UnknownHostException, IOException {
-        // TODO Auto-generated method stub
+    // @Override
+    // public void write(String IP, String PORT, String path) throws
+    // UnknownHostException, IOException {
+    // // TODO Auto-generated method stub
 
-    }
+    // }
 
 }

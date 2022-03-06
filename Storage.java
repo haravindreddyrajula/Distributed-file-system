@@ -30,5 +30,9 @@ public interface Storage extends Remote {
     public void read(String path) throws IOException, RemoteException;
 
     // public boolean create (String file) throws RemoteException, IOException;
-    public void write(String IP, String PORT, String path) throws UnknownHostException, IOException;
+    // commented for creating replicas
+    // public void write(String IP, String PORT, String path) throws
+    // UnknownHostException, IOException;
+
+    public boolean write(String IP, String PORT, String path) throws UnknownHostException, IOException;
 }
