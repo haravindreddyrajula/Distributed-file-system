@@ -5,7 +5,7 @@ import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.Serializable;
-import java.net.InetAddress;
+// import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.file.Paths;
@@ -105,6 +105,26 @@ public class Replica extends UnicastRemoteObject implements Storage, Serializabl
                 list.add(file.getName());
         }
         files = list.toArray(new String[list.size()]);
+    }
+
+    public boolean directoryimpl(String IP, String PORT, String path, String type)
+            throws UnknownHostException, IOException {
+        new Thread(new Runnable() {
+            public void run() {
+                System.out.println("Folder: " + path);
+                try {
+                    File serverpathdir = new File(path);
+                    if (type.equals("mkdir"))
+                        serverpathdir.mkdir();
+                    else if (type.equals("delete"))
+                        serverpathdir.delete();
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+
+        }).start();
+        return true;
     }
 
     // Writing file

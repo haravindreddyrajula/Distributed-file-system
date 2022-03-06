@@ -22,6 +22,8 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.Callable;
+import java.util.concurrent.FutureTask;
 
 public class Master extends UnicastRemoteObject implements Storage {
 
@@ -98,23 +100,37 @@ public class Master extends UnicastRemoteObject implements Storage {
                         bos.write(contents, 0, bytesRead);
 
                         // bos.write(contents);
-                        System.out.println("haravind");
+                        // System.out.println("haravind");
                     }
                     // Writing for replicas
+                    List<Socket> replicaSockets = new ArrayList<>();
+                    FutureTask[] futures = new FutureTask[1];
+
                     for (Storage stub : storageServers) {
                         List<String> s = replicanames.get(stub);
                         // stub.write(s.get(0), s.get(1), path);
-                        System.out.println("before stub completed");
+                        // System.out.println("before stub completed");
                         Socket socketre = new Socket(InetAddress.getByName(s.get(0)), Integer.parseInt(s.get(1)));
-                        OutputStream os = socketre.getOutputStream();
-                        os.write(contents);
-                        stub.write(s.get(0), s.get(1), path);
-                        os.flush();
-                        os.close();
-                        socketre.close();
+
+                        Callable replicaFuture = new ReplicaFuture(socketre, contents, stub, s.get(0), s.get(1),
+                                path);
+                        futures[0] = new FutureTask<>(replicaFuture);
+                        Thread t = new Thread(futures[0]);
+                        t.start();
+
+                        // OutputStream os = socketre.getOutputStream();
+                        // os.write(contents);
+                        // stub.write(s.get(0), s.get(1), path);
+                        // os.flush();
+                        // os.close();
+                        // socketre.close();
                         System.out.println("after stub completed");
                     }
-                    System.out.println("stub write completed");
+
+                    if ((Integer) (futures[0].get()) == 1) {
+                        System.out.println("stub write completed");
+                    }
+
                     bos.flush();
                     bos.close();
                     fos.flush();
@@ -128,48 +144,54 @@ public class Master extends UnicastRemoteObject implements Storage {
             }
 
         }).start();
+        return true;
 
-        // System.out.println("Sending file to server and its replicas");
-        // System.out.println("Writing " + path + " in Master Server ");
+    }
 
-        // String addr = new String(IP); // ip o
-        // int port = Integer.parseInt(PORT);// Tcp port listening on sender (put)
+    public boolean directoryimpl(String IP, String PORT, String path, String type)
+            throws UnknownHostException, IOException {
 
-        // Socket tempsocket = new Socket(InetAddress.getByName(addr), port);//
-        // createsocket
+        new Thread(new Runnable() {
+            public void run() {
+                System.out.println("Folder: " + path);
+                try {
 
-        // byte[] contents = new byte[10000];
+                    File serverpathdir = new File(path);
+                    if (type.equals("mkdir"))
+                        serverpathdir.mkdir();
+                    else if (type.equals("delete"))
+                        serverpathdir.delete();
 
-        // FileOutputStream fos = new FileOutputStream(path);
-        // BufferedOutputStream bos = new BufferedOutputStream(fos);
+                    // FutureTask[] futures = new FutureTask[1];
+                    for (Storage stub : storageServers) {
+                        List<String> s = replicanames.get(stub);
+                        // stub.write(s.get(0), s.get(1), path);
+                        System.out.println("before stub completed");
+                        stub.directoryimpl(IP, PORT, path, type);
+                        // Socket socketre = new Socket(InetAddress.getByName(s.get(0)),
+                        // Integer.parseInt(s.get(1)));
 
-        // InputStream is = tempsocket.getInputStream();
-        // int bytesRead = 0;
-        // System.out.println("tempsocket input");
-        // while ((bytesRead = is.read(contents)) != -1) {
-        // System.out.println(bytesRead);
-        // bos.write(contents, 0, bytesRead);
-        // // bos.write(contents);
-        // System.out.println("haravind");
-        // }
-        // tempsocket.close();
-        // System.out.println("bos write completed");
-        // // Writing for replicas
-        // for (Storage stub : storageServers) {
-        // List<String> s = replicanames.get(stub);
-        // // stub.write(s.get(0), s.get(1), path);
-        // System.out.println("before stub completed");
-        // stub.write(IP, PORT, path);
-        // System.out.println("after stub completed");
-        // }
-        // System.out.println("stub write completed");
-        // bos.flush();
-        // bos.close();
-        // fos.flush();
-        // fos.close();
+                        // Callable replicaFuture = new ReplicaFuture(socketre, contents, stub,
+                        // s.get(0), s.get(1),
+                        // path);
+                        // futures[0] = new FutureTask<>(replicaFuture);
+                        // Thread t = new Thread(futures[0]);
+                        // t.start();
 
-        // System.out.println("File saved successfully! at Primary server");
+                        // OutputStream os = socketre.getOutputStream();
+                        // os.write(contents);
+                        // stub.write(s.get(0), s.get(1), path);
+                        // os.flush();
+                        // os.close();
+                        // socketre.close();
+                        System.out.println("after stub completed");
+                    }
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
 
+        }).start();
         return true;
 
     }
@@ -196,12 +218,6 @@ public class Master extends UnicastRemoteObject implements Storage {
             temp.add(new String(PORT_STORAGE_SERVER + ""));
             replicanames.put(command_stub, temp);
         }
-        // System.out.println(replicaips.keySet());
-        // System.out.println(replicaips.values());
-        // System.out.println();
-
-        // System.out.println(replicanames.keySet());
-        // System.out.println(replicanames.values());
         return new String[2];
     }
 
