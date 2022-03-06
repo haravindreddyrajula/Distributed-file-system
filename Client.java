@@ -27,7 +27,7 @@ public class Client {
         service_stub = (Storage) master.lookup("Master");
     }
 
-    // put constructor
+    // constructor
     public Client(String IP, String PORT, String tcp) throws Exception {
         this.masterIP = IP;
         this.masterPort = Integer.parseInt(PORT);
@@ -85,6 +85,23 @@ public class Client {
         // service_stub.put(args[5], args[4], args[1]); // client ip, tcp port, filepath
     }
 
+    private void directories(String args[]) throws Exception {
+        String path = args[1];
+        new Thread(new Runnable() {
+            public void run() {
+                System.out.println("Folder: " + path);
+                try {
+                    boolean s = service_stub.directoryimpl(args[5], args[4], args[1], args[0]);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+
+        }).start();
+
+        // service_stub.put(args[5], args[4], args[1]); // client ip, tcp port, filepath
+    }
+
     public void run() throws Exception {
         List<String> files = service_stub.list(); // get storge server hosting "path" file
         for (String file : files)
@@ -94,30 +111,35 @@ public class Client {
     // CLI : java Client list
     public static void main(String args[]) throws Exception {
         // java client
-        // args[0] -> operation [put/list....]
+        // args[0] -> operation [put/list/mkdir....]
         // args[1] -> file path
         // args[2] -> master server
         // args[3] -> master port
         // args[4] -> tcp port
         // args[5] -> client ip
 
-        if (args[0].equalsIgnoreCase("list")) {
-            if (args.length < 2) {
-                System.err.println("Bad usage  " + " IP address of naming server port of naming server ");
-                System.exit(1);
-            }
-            Client object = new Client(args[0], args[1]); // 2nd arg ip of naming server
-            object.run(); // 1st arg file
+        if (args.length < 6) {
+            System.err.println("Bad usage. plz provide filepath, masterip, master port, tcp port, your ip");
             System.exit(1);
         }
+        Client object = new Client(args[2], args[3], args[4]);
+
+        // if (args[0].equalsIgnoreCase("list")) {
+        // if (args.length < 2) {
+        // System.err.println("Bad usage " + " IP address of naming server port of
+        // naming server ");
+        // System.exit(1);
+        // }
+        // Client object = new Client(args[0], args[1]); // 2nd arg ip of naming server
+        // object.run(); // 1st arg file
+        // System.exit(1);
+        // }
 
         if (args[0].equalsIgnoreCase("put")) {
-            if (args.length < 6) {
-                System.err.println("Bad usage. plz provide filepath, masterip, master port, tcp port, your ip");
-                System.exit(1);
-            }
-            Client object = new Client(args[2], args[3], args[4]);
             object.transfer(args);
+        }
+        if (args[0].equalsIgnoreCase("mkdir")) {
+            object.directories(args);
         }
 
     }
