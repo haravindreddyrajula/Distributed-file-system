@@ -6,10 +6,11 @@ import java.util.List;
 import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.InputStream;
 import java.io.OutputStream;
+import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.rmi.*;
 
 public class Client {
 
@@ -18,11 +19,6 @@ public class Client {
     private String masterIP;
     private int masterPort;
 
-    private static ServerSocket ssock;
-    private static Socket socket;
-
-    // list constructor
-    // TODO
     public Client(String IP, String PORT) throws RemoteException, NotBoundException {
         this.masterIP = IP;
         this.masterPort = Integer.parseInt(PORT);
@@ -36,8 +32,6 @@ public class Client {
         this.masterIP = IP;
         this.masterPort = Integer.parseInt(PORT);
 
-        ssock = new ServerSocket(Integer.parseInt(tcp));
-
         Registry master = LocateRegistry.getRegistry(masterIP, masterPort);
         service_stub = (Storage) master.lookup("Master");
     }
@@ -48,8 +42,8 @@ public class Client {
             public void run() {
                 System.out.println("File: " + path);
                 try {
-                    Socket socket = ssock.accept();
-
+                    // Socket socket = ssock.accept();
+                    Socket socket = new Socket(InetAddress.getByName(args[2]), Integer.parseInt(args[4]));
                     String anim = "|/-\\";
                     File file = new File(path);
                     FileInputStream fis = new FileInputStream(file);
@@ -77,6 +71,9 @@ public class Client {
 
                     }
                     os.flush();
+                    os.close();
+                    bis.close();
+                    socket.close(); // added
                     System.out.println("File sent succesfully!");
                 } catch (Exception e) {
                     e.printStackTrace();

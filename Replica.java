@@ -18,7 +18,6 @@ import java.util.ArrayList;
 import java.util.List;
 
 import java.rmi.registry.LocateRegistry;
-import java.rmi.registry.LocateRegistry.*;
 
 public class Replica extends UnicastRemoteObject implements Storage, Serializable {
 
@@ -33,9 +32,12 @@ public class Replica extends UnicastRemoteObject implements Storage, Serializabl
     private static ServerSocket ssock;
     private static Socket socket;
 
-    protected Replica() throws RemoteException {
-        super();
+    public Replica() throws RemoteException {
+        // super();
         // TODO Auto-generated constructor stub
+    }
+
+    public Replica(File root) throws RemoteException {
     }
 
     public Replica(String[] args) throws Exception {
@@ -61,15 +63,15 @@ public class Replica extends UnicastRemoteObject implements Storage, Serializabl
 
         Registry storageserver = LocateRegistry.getRegistry("localhost", PORT);
         storage = (Storage) storageserver.lookup("Service_" + IP);
-        // System.out.println(storage.toString());
+
     }
 
     private void registerMaster(String IP, int PORT) throws Exception {
         Registry masterServer = LocateRegistry.getRegistry(IP, PORT);
-        // System.out.println(masterServer.toString()); // success
         Storage reg_stub = (Storage) masterServer.lookup("Master");
-        // System.out.println(reg_stub.toString());
         reg_stub.register(replicaIP, tcpPort, files, storage); // tcpport check?
+
+        System.out.println("Connected to Master successfully");
     }
 
     private void getAllFiles() throws Exception {
@@ -107,32 +109,74 @@ public class Replica extends UnicastRemoteObject implements Storage, Serializabl
 
     // Writing file
     public boolean write(String IP, String PORT, String path) throws UnknownHostException, IOException {
+        new Thread(new Runnable() {
+            public void run() {
+                System.out.println("File: " + path);
+                try {
+                    Socket socket = ssock.accept();
 
-        System.out.println("Writing " + path + "in Replica ");
-        String addr = new String(IP); // ip
-        int port = Integer.parseInt(PORT);// Tcp port listening on sender (put)
+                    byte[] contents = new byte[10000];
+                    FileOutputStream fos = new FileOutputStream(path);
+                    BufferedOutputStream bos = new BufferedOutputStream(fos);
+                    InputStream is = socket.getInputStream();
 
-        Socket socket = new Socket(InetAddress.getByName(addr), port);// crate socket
+                    int bytesRead = 0;
+                    while ((bytesRead = is.read(contents)) != -1) {
+                        System.out.println(bytesRead);
+                        // For(i=0;i<noOfReplicas;++){}
 
-        byte[] contents = new byte[10000];
-        FileOutputStream fos = new FileOutputStream(path);
-        BufferedOutputStream bos = new BufferedOutputStream(fos);
-        InputStream is = socket.getInputStream();
-        int bytesRead = 0;
-        while ((bytesRead = is.read(contents)) != -1)
-            bos.write(contents, 0, bytesRead);
+                        bos.write(contents, 0, bytesRead);
 
-        bos.flush();
-        bos.close();
-        socket.close();
-        System.out.println("File saved successfully at replica");
+                        // bos.write(contents);
+                        System.out.println("haravind");
+                    }
+
+                    System.out.println("stub write completed");
+                    bos.flush();
+                    bos.close();
+                    fos.flush();
+                    fos.close();
+                    socket.close();
+                    System.out.println("File saved successfully! at Primary server");
+
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+
+        }).start();
+        // System.out.println("Writing " + path + " in your system/replica ");
+        // String addr = new String(IP); // ip
+        // int port = Integer.parseInt(PORT);// Tcp port listening on sender (put)
+
+        // Socket socket = new Socket(InetAddress.getByName(addr), port);// crate socket
+
+        // byte[] contents = new byte[10000];
+        // FileOutputStream fos = new FileOutputStream(path);
+        // BufferedOutputStream bos = new BufferedOutputStream(fos);
+        // InputStream is = socket.getInputStream();
+        // int bytesRead = 0;
+        // System.out.println("tempsocket input");
+        // System.out.println(contents.length);
+        // System.out.println(contents.toString());
+        // while ((bytesRead = is.read(contents)) != -1) {
+        // System.out.println("agh");
+        // // bos.write(contents, 0, bytesRead);
+        // bos.write(contents);
+        // System.out.println("haravind");
+        // }
+        // System.out.println("bos write completed");
+        // bos.flush();
+        // bos.close();
+        // socket.close();
+        // System.out.println("File saved successfully at replica");
         return true;
     }
 
     public static void main(String args[]) throws RemoteException, NotBoundException, UnknownHostException, Exception {
         if (args.length < 5) {
             System.err.println(
-                    "Incorrect arguments length.. Please give IP addresses and port numbers of master and slave nodes and tcp port");
+                    "Incorrect arguments. Please give IP addresses and port numbers of your and master and tcp port");
             System.exit(1);
         }
         // try {
