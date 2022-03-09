@@ -192,11 +192,37 @@ public class Replica extends UnicastRemoteObject implements Storage {
         return true;
     }
 
+    public boolean writePhaseone(String IP, String PORT, String path, String uniqueKey)
+            throws UnknownHostException, IOException {
+        new Thread(new Runnable() {
+            public void run() {
+                System.out.println("File: " + path + " is in phase one");
+                try {
+                    Socket socket = ssock.accept();
+                    InputStream is = socket.getInputStream();
+                    isolatedStorage.put(uniqueKey, is.readAllBytes());
+
+                    System.out.println("isolated storage updated with contents");
+
+                    socket.close();
+                    System.out.println("File success at phase one");
+
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+
+        }).start();
+        // System.out.println("Writing " + path + " in your system/replica ");
+
+        return true;
+    }
+
     public boolean writePhaseTwo(String IP, String PORT, String path, String uniqueKey)
             throws UnknownHostException, IOException {
         new Thread(new Runnable() {
             public void run() {
-                System.out.println("File: " + path);
+                System.out.println("File: " + path + " is in phase two");
                 try {
                     Socket socket = ssock.accept();
 
@@ -208,19 +234,20 @@ public class Replica extends UnicastRemoteObject implements Storage {
                         InputStream is = socket.getInputStream();
                         byte[] fileContents = isolatedStorage.get(uniqueKey);
                         int bytesRead = 0;
+                        System.out.println("phase 2 commit block");
                         while ((bytesRead = is.read(fileContents)) != -1) {
                             System.out.println(bytesRead);
                             bos.write(fileContents, 0, bytesRead);
-                            System.out.println("haravind");
+                            System.out.println("haravind success 2");
                         }
 
-                        System.out.println("stub write completed");
+                        System.out.println("stub write completed phase 2");
                         bos.flush();
                         bos.close();
                         fos.flush();
                         fos.close();
                         socket.close();
-                        System.out.println("File saved successfully! at Primary server");
+                        System.out.println("File saved successfully! at Replica");
                         isolatedStorage.remove(uniqueKey);
                     } else {
                         // Do nothing

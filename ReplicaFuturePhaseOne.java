@@ -28,8 +28,8 @@ public class ReplicaFuturePhaseOne implements Callable {
             OutputStream os = socket.getOutputStream();
             os.write(contents);
             // os.write(contents);
-            boolean flag = stub.write(ipAddress, port, path);
-            os.flush();
+            boolean flag = stub.writePhaseone(ipAddress, port, path, ipAddress);
+            os.flush(); // ?
             os.close();
             // System.out.println("after stub completed");
             if (flag) {

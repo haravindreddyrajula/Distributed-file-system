@@ -27,6 +27,12 @@ public interface Storage extends Remote {
 
         public boolean write(String IP, String PORT, String path) throws UnknownHostException, IOException;
 
+        public boolean writePhaseTwo(String IP, String PORT, String path, String userName)
+                        throws UnknownHostException, IOException;
+
+        public boolean writePhaseone(String IP, String PORT, String path, String userName)
+                        throws UnknownHostException, IOException;
+
         public List<String> getStorage(String file) throws RemoteException, FileNotFoundException, IOException;
 
         public List<String> list() throws Exception;

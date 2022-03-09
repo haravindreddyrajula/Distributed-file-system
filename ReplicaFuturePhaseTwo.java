@@ -26,7 +26,7 @@ public class ReplicaFuturePhaseTwo implements Callable {
 
             OutputStream os = socket.getOutputStream();
             os.write(contents); // Sending Commit or abort
-            boolean flag = stub.write(ipAddress, port, path);
+            boolean flag = stub.writePhaseTwo(ipAddress, port, path, ipAddress);
             os.flush();
             os.close();
             socket.close();
