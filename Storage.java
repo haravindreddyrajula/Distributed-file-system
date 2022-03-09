@@ -8,34 +8,26 @@ import java.util.List;
 
 public interface Storage extends Remote {
 
-    // command
-    public boolean create(String file) throws RemoteException, IOException;
+        public String[] register(String IP_STORAGE_SERVER, int PORT_STORAGE_SERVER, String[] files,
+                        Storage command_stub)
+                        throws RemoteException, NotBoundException;
 
-    // registration
-    public String[] register(String IP_STORAGE_SERVER, int PORT_STORAGE_SERVER, String[] files, Storage command_stub)
-            throws RemoteException, NotBoundException;
+        public boolean directoryimpl(String IP, String PORT, String path, String type)
+                        throws UnknownHostException, IOException;
 
-    // Service
-    public boolean createFile(String file) throws RemoteException, FileNotFoundException;
+        public boolean create(String file) throws RemoteException, IOException;
 
-    public List<String> getStorage(String file) throws RemoteException, FileNotFoundException, IOException;
+        public boolean remove(String file) throws RemoteException, IOException;
 
-    public boolean put(String IP, String PORT, String path) throws Exception;
+        public boolean put(String IP, String PORT, String path) throws Exception;
 
-    public List<String> list() throws Exception;
+        public byte[] read() throws RemoteException;
 
-    // Storage
-    public byte[] read() throws RemoteException;
+        public void read(String path) throws IOException, RemoteException;
 
-    public void read(String path) throws IOException, RemoteException;
+        public boolean write(String IP, String PORT, String path) throws UnknownHostException, IOException;
 
-    // public boolean create (String file) throws RemoteException, IOException;
-    // commented for creating replicas
-    // public void write(String IP, String PORT, String path) throws
-    // UnknownHostException, IOException;
+        public List<String> getStorage(String file) throws RemoteException, FileNotFoundException, IOException;
 
-    public boolean directoryimpl(String IP, String PORT, String path, String type)
-            throws UnknownHostException, IOException;
-
-    public boolean write(String IP, String PORT, String path) throws UnknownHostException, IOException;
+        public List<String> list() throws Exception;
 }

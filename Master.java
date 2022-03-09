@@ -1,12 +1,12 @@
-import java.io.BufferedInputStream;
+
 import java.io.BufferedOutputStream;
 import java.io.File;
-import java.io.FileInputStream;
+
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.OutputStream;
+
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -95,41 +95,84 @@ public class Master extends UnicastRemoteObject implements Storage {
                     int bytesRead = 0;
                     while ((bytesRead = is.read(contents)) != -1) {
                         System.out.println(bytesRead);
-                        // For(i=0;i<noOfReplicas;++){}
-
                         bos.write(contents, 0, bytesRead);
 
                         // bos.write(contents);
                         // System.out.println("haravind");
                     }
                     // Writing for replicas
+
+                    // FutureTask[] futures = new FutureTask[1];
+
+                    //
+                    FutureTask<Integer>[] futurePhaseOne = new FutureTask[storageServers.size()];
+                    FutureTask<Integer>[] futurePhaseTwo = new FutureTask[storageServers.size()];
                     List<Socket> replicaSockets = new ArrayList<>();
-                    FutureTask[] futures = new FutureTask[1];
 
                     for (Storage stub : storageServers) {
                         List<String> s = replicanames.get(stub);
-                        // stub.write(s.get(0), s.get(1), path);
-                        // System.out.println("before stub completed");
                         Socket socketre = new Socket(InetAddress.getByName(s.get(0)), Integer.parseInt(s.get(1)));
-
-                        Callable replicaFuture = new ReplicaFuture(socketre, contents, stub, s.get(0), s.get(1),
+                        replicaSockets.add(socketre);
+                        // Spwaning phase 1 threads
+                        Callable replicaFuture = new ReplicaFuturePhaseOne(socketre, contents, stub, s.get(0), s.get(1),
                                 path);
-                        futures[0] = new FutureTask<>(replicaFuture);
-                        Thread t = new Thread(futures[0]);
+                        futurePhaseOne[replicaSockets.size() - 1] = new FutureTask<>(replicaFuture);
+                        Thread t = new Thread(futurePhaseOne[replicaSockets.size() - 1]);
                         t.start();
-
-                        // OutputStream os = socketre.getOutputStream();
-                        // os.write(contents);
-                        // stub.write(s.get(0), s.get(1), path);
-                        // os.flush();
-                        // os.close();
-                        // socketre.close();
-                        System.out.println("after stub completed");
                     }
 
-                    if ((Integer) (futures[0].get()) == 1) {
-                        System.out.println("stub write completed");
+                    int voteCount = 0;
+                    for (int i = 0; i < replicaSockets.size(); i++) {
+                        voteCount = voteCount + (Integer) (futurePhaseOne[i].get());
                     }
+
+                    int i = 0;
+                    for (Storage stub : storageServers) {
+                        String message = null;
+                        if (voteCount == replicaSockets.size()) { // all agreed on commit
+                            message = "COMMIT"; // convert string to byte array
+                        } else {
+                            message = "ABORT";
+                        }
+                        List<String> s = replicanames.get(stub);
+                        Callable replicaFuturePhaseTwo = new ReplicaFuturePhaseTwo(replicaSockets.get(i),
+                                message.getBytes(),
+                                stub,
+                                s.get(0),
+                                s.get(1));
+                        futurePhaseTwo[i] = new FutureTask<>(replicaFuturePhaseTwo);
+                        Thread t = new Thread(futurePhaseTwo[i]);
+                        t.start();
+                        i++;
+                    }
+
+                    //
+                    // for (Storage stub : storageServers) {
+                    // List<String> s = replicanames.get(stub);
+                    // // stub.write(s.get(0), s.get(1), path);
+                    // // System.out.println("before stub completed");
+                    // Socket socketre = new Socket(InetAddress.getByName(s.get(0)),
+                    // Integer.parseInt(s.get(1)));
+
+                    // Callable replicaFuture = new ReplicaFuturePhaseOne(socketre, contents, stub,
+                    // s.get(0), s.get(1),
+                    // path);
+                    // futures[0] = new FutureTask<>(replicaFuture);
+                    // Thread t = new Thread(futures[0]);
+                    // t.start();
+
+                    // // OutputStream os = socketre.getOutputStream();
+                    // // os.write(contents);
+                    // // stub.write(s.get(0), s.get(1), path);
+                    // // os.flush();
+                    // // os.close();
+                    // // socketre.close();
+                    // System.out.println("after stub completed");
+                    // }
+
+                    // if ((Integer) (futures[0].get()) == 1) {
+                    // System.out.println("stub write completed");
+                    // }
 
                     bos.flush();
                     bos.close();
@@ -164,7 +207,7 @@ public class Master extends UnicastRemoteObject implements Storage {
 
                     // FutureTask[] futures = new FutureTask[1];
                     for (Storage stub : storageServers) {
-                        List<String> s = replicanames.get(stub);
+                        // List<String> s = replicanames.get(stub);
                         // stub.write(s.get(0), s.get(1), path);
                         System.out.println("before stub completed");
                         stub.directoryimpl(IP, PORT, path, type);
@@ -302,12 +345,6 @@ public class Master extends UnicastRemoteObject implements Storage {
     }
 
     @Override
-    public boolean createFile(String file) throws RemoteException, FileNotFoundException {
-        // TODO Auto-generated method stub
-        return false;
-    }
-
-    @Override
     public List<String> getStorage(String file) throws RemoteException, FileNotFoundException, IOException {
         // TODO Auto-generated method stub
         return null;
@@ -315,6 +352,12 @@ public class Master extends UnicastRemoteObject implements Storage {
 
     @Override
     public boolean put(String IP, String PORT, String path) throws Exception {
+        // TODO Auto-generated method stub
+        return false;
+    }
+
+    @Override
+    public boolean remove(String file) throws RemoteException, IOException {
         // TODO Auto-generated method stub
         return false;
     }

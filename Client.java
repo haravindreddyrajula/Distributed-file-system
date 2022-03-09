@@ -6,10 +6,8 @@ import java.util.List;
 import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetAddress;
-import java.net.ServerSocket;
 import java.net.Socket;
 
 public class Client {
@@ -52,7 +50,7 @@ public class Client {
                     byte[] contents;
                     long fileLength = file.length();
                     long current = 0;
-                    long start = System.nanoTime();
+                    // long start = System.nanoTime();
                     while (current != fileLength) {
                         int size = 10000;
                         if (fileLength - current >= size)
@@ -81,7 +79,7 @@ public class Client {
             }
 
         }).start();
-        boolean s = service_stub.write(args[5], args[4], args[1]);
+        service_stub.write(args[5], args[4], args[1]);
         // service_stub.put(args[5], args[4], args[1]); // client ip, tcp port, filepath
     }
 
@@ -91,7 +89,7 @@ public class Client {
             public void run() {
                 System.out.println("Folder: " + path);
                 try {
-                    boolean s = service_stub.directoryimpl(args[5], args[4], args[1], args[0]);
+                    service_stub.directoryimpl(args[5], args[4], args[1], args[0]);
                 } catch (Exception e) {
                     e.printStackTrace();
                 }
