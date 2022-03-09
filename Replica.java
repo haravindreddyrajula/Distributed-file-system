@@ -4,10 +4,9 @@ import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.io.Serializable;
-// import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Paths;
 import java.rmi.NotBoundException;
 import java.rmi.RemoteException;
@@ -16,10 +15,10 @@ import java.rmi.registry.Registry;
 import java.rmi.server.UnicastRemoteObject;
 import java.util.ArrayList;
 import java.util.List;
-
+import java.util.concurrent.ConcurrentHashMap;
 import java.rmi.registry.LocateRegistry;
 
-public class Replica extends UnicastRemoteObject implements Storage, Serializable {
+public class Replica extends UnicastRemoteObject implements Storage {
 
     private static String masterIP;
     private static int masterPort;
@@ -28,9 +27,9 @@ public class Replica extends UnicastRemoteObject implements Storage, Serializabl
     private static int replicaPort;
     private String[] files;
     public Storage storage;
-
+    private ConcurrentHashMap<String, byte[]> isolatedStorage = new ConcurrentHashMap<String, byte[]>();
     private static ServerSocket ssock;
-    private static Socket socket;
+    // private static Socket socket;
 
     public Replica() throws RemoteException {
         // super();
@@ -193,6 +192,51 @@ public class Replica extends UnicastRemoteObject implements Storage, Serializabl
         return true;
     }
 
+    public boolean writePhaseTwo(String IP, String PORT, String path, String uniqueKey)
+            throws UnknownHostException, IOException {
+        new Thread(new Runnable() {
+            public void run() {
+                System.out.println("File: " + path);
+                try {
+                    Socket socket = ssock.accept();
+
+                    byte[] contents = new byte[10000];
+                    String message = new String(contents, StandardCharsets.UTF_8);
+                    if (message.equals("COMMIT")) {
+                        FileOutputStream fos = new FileOutputStream(path);
+                        BufferedOutputStream bos = new BufferedOutputStream(fos);
+                        InputStream is = socket.getInputStream();
+                        byte[] fileContents = isolatedStorage.get(uniqueKey);
+                        int bytesRead = 0;
+                        while ((bytesRead = is.read(fileContents)) != -1) {
+                            System.out.println(bytesRead);
+                            bos.write(fileContents, 0, bytesRead);
+                            System.out.println("haravind");
+                        }
+
+                        System.out.println("stub write completed");
+                        bos.flush();
+                        bos.close();
+                        fos.flush();
+                        fos.close();
+                        socket.close();
+                        System.out.println("File saved successfully! at Primary server");
+                        isolatedStorage.remove(uniqueKey);
+                    } else {
+                        // Do nothing
+                        isolatedStorage.remove(uniqueKey);
+                    }
+
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+
+        }).start();
+
+        return true;
+    }
+
     public static void main(String args[]) throws RemoteException, NotBoundException, UnknownHostException, Exception {
         if (args.length < 5) {
             System.err.println(
@@ -220,12 +264,6 @@ public class Replica extends UnicastRemoteObject implements Storage, Serializabl
             throws RemoteException, NotBoundException {
         // TODO Auto-generated method stub
         return null;
-    }
-
-    @Override
-    public boolean createFile(String file) throws RemoteException, FileNotFoundException {
-        // TODO Auto-generated method stub
-        return false;
     }
 
     @Override
@@ -258,11 +296,9 @@ public class Replica extends UnicastRemoteObject implements Storage, Serializabl
 
     }
 
-    // @Override
-    // public void write(String IP, String PORT, String path) throws
-    // UnknownHostException, IOException {
-    // // TODO Auto-generated method stub
-
-    // }
-
+    @Override
+    public boolean remove(String file) throws RemoteException, IOException {
+        // TODO Auto-generated method stub
+        return false;
+    }
 }
