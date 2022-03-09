@@ -117,7 +117,7 @@ public class Master extends UnicastRemoteObject implements Storage {
                                 message.getBytes(),
                                 stub,
                                 s.get(0),
-                                s.get(1));
+                                s.get(1), path);
                         futurePhaseTwo[i] = new FutureTask<>(replicaFuturePhaseTwo);
                         Thread t = new Thread(futurePhaseTwo[i]);
                         t.start();

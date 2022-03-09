@@ -30,13 +30,13 @@ public class ReplicaFuturePhaseOne implements Callable {
             // os.write(contents);
             boolean flag = stub.writePhaseone(ipAddress, port, path, ipAddress);
             os.flush(); // ?
-            os.close();
+            // os.close();
             // System.out.println("after stub completed");
             if (flag) {
                 return 1;
             }
         } catch (Exception e) {
-            System.out.println("Error in sending information to replica");
+            System.out.println("Error in sending information to replica phase 1");
             e.printStackTrace();
         }
 
