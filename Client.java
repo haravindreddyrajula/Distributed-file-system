@@ -1,8 +1,7 @@
-import java.rmi.NotBoundException;
-import java.rmi.RemoteException;
 import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
 import java.util.List;
+import java.util.Map;
 import java.io.BufferedInputStream;
 import java.io.File;
 import java.io.FileInputStream;
@@ -16,31 +15,26 @@ public class Client {
     private Storage service_stub;
     private String masterIP;
     private int masterPort;
-
-    public Client(String IP, String PORT) throws RemoteException, NotBoundException {
-        this.masterIP = IP;
-        this.masterPort = Integer.parseInt(PORT);
-
-        master = LocateRegistry.getRegistry(masterIP, masterPort);
-        service_stub = (Storage) master.lookup("Master");
-    }
+    private Map<String, List<String>> fileLocation;
 
     // constructor
     public Client(String IP, String PORT, String tcp) throws Exception {
         this.masterIP = IP;
         this.masterPort = Integer.parseInt(PORT);
 
-        Registry master = LocateRegistry.getRegistry(masterIP, masterPort);
+        master = LocateRegistry.getRegistry(masterIP, masterPort);
         service_stub = (Storage) master.lookup("Master");
+        fileLocation = service_stub.getFileMap();
     }
 
-    private void transfer(String args[]) throws Exception {
+    // Transfering file (reading and exporting)
+    private void transfer(String args[], String fileDetail) throws Exception {
         String path = args[1];
+
         new Thread(new Runnable() {
             public void run() {
                 System.out.println("File: " + path);
                 try {
-                    // Socket socket = ssock.accept();
                     Socket socket = new Socket(InetAddress.getByName(args[2]), Integer.parseInt(args[4]));
                     String anim = "|/-\\";
                     File file = new File(path);
@@ -71,7 +65,7 @@ public class Client {
                     os.flush();
                     os.close();
                     bis.close();
-                    socket.close(); // added
+                    socket.close();
                     System.out.println("File sent succesfully!");
                 } catch (Exception e) {
                     e.printStackTrace();
@@ -79,17 +73,17 @@ public class Client {
             }
 
         }).start();
-        service_stub.write(args[5], args[4], args[1]);
-        // service_stub.put(args[5], args[4], args[1]); // client ip, tcp port, filepath
+        service_stub.write(args[5], args[4], args[1], fileDetail); // client ip, tcp port, filepath, detial=[new, old]
     }
 
-    private void directories(String args[]) throws Exception {
-        String path = args[1];
+    // client only method
+    private void directories(String args[], String fileDetail) throws Exception {
         new Thread(new Runnable() {
             public void run() {
-                System.out.println("Folder: " + path);
+                System.out.println("Folder: " + args[1]);
                 try {
-                    service_stub.directoryimpl(args[5], args[4], args[1], args[0]);
+                    // clientIp, tcpport, filepath, operation, detail
+                    service_stub.directoryimpl(args[5], args[4], args[1], args[0], fileDetail);
                 } catch (Exception e) {
                     e.printStackTrace();
                 }
@@ -106,7 +100,20 @@ public class Client {
             System.out.println(file);
     }
 
-    // CLI : java Client list
+    // client only method
+    public String authorizeCheck(String file, String clientIP) {
+        if (!fileLocation.containsKey(file)) {
+            return "new"; // new file
+        } else {
+            if (fileLocation.get(file).contains(clientIP)) {
+                return "existing"; // rewriting file
+            } else {
+                return "denied";
+            }
+        }
+    }
+
+    // CLI : java Client
     public static void main(String args[]) throws Exception {
         // java client
         // args[0] -> operation [put/list/mkdir....]
@@ -117,27 +124,32 @@ public class Client {
         // args[5] -> client ip
 
         if (args.length < 6) {
-            System.err.println("Bad usage. plz provide filepath, masterip, master port, tcp port, your ip");
+            System.err.println("Bad usage. plz provide operation, filepath, masterip, master port, tcp port, your ip");
             System.exit(1);
         }
         Client object = new Client(args[2], args[3], args[4]);
 
-        // if (args[0].equalsIgnoreCase("list")) {
-        // if (args.length < 2) {
-        // System.err.println("Bad usage " + " IP address of naming server port of
-        // naming server ");
-        // System.exit(1);
-        // }
-        // Client object = new Client(args[0], args[1]); // 2nd arg ip of naming server
-        // object.run(); // 1st arg file
-        // System.exit(1);
-        // }
-
+        // inserting or rewriting
         if (args[0].equalsIgnoreCase("put")) {
-            object.transfer(args);
+            String detail = object.authorizeCheck(args[1], args[5]); // authorization check call
+            if (detail.equals("denied")) {
+                System.err
+                        .println("Permission Denied: Because you don't have authorization to the " + args[5]);
+                System.exit(1);
+            } else {
+                object.transfer(args, detail);
+            }
         }
+
         if (args[0].equalsIgnoreCase("mkdir")) {
-            object.directories(args);
+            String detail = object.authorizeCheck(args[1], args[5]);
+            if (detail.equals("denied")) {
+                System.err
+                        .println("Permission Denied: Because you don't have authorization to the " + args[5]);
+                System.exit(1);
+            } else {
+                object.directories(args, detail);
+            }
         }
 
     }
