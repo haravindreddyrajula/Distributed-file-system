@@ -3,8 +3,11 @@ import java.rmi.registry.Registry;
 import java.util.List;
 import java.util.Map;
 import java.io.BufferedInputStream;
+import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetAddress;
 import java.net.Socket;
@@ -18,13 +21,49 @@ public class Client {
     private Map<String, List<String>> fileLocation;
 
     // constructor
-    public Client(String IP, String PORT, String tcp) throws Exception {
+    public Client(String IP, String PORT) throws Exception {
         this.masterIP = IP;
         this.masterPort = Integer.parseInt(PORT);
 
         master = LocateRegistry.getRegistry(masterIP, masterPort);
         service_stub = (Storage) master.lookup("Master");
         fileLocation = service_stub.getFileMap();
+    }
+
+    private void getFile(String args[]) throws Exception {
+        String path = args[1];
+
+        new Thread(new Runnable() {
+            public void run() {
+                System.out.println("Writing File: " + path);
+                try {
+                    // params : master server & port
+                    Socket socket = new Socket(InetAddress.getByName(args[2]), Integer.parseInt(args[4]));
+                    // client ip, tcp port, filepath, detial=[new, old]
+                    // service_stub.write(args[5], args[4], args[1], fileDetail);
+                    service_stub.read(path);
+                    FileOutputStream fos = new FileOutputStream(path);
+                    BufferedOutputStream bos = new BufferedOutputStream(fos);
+                    InputStream is = socket.getInputStream();
+                    int bytesRead = 0;
+                    byte[] contents = new byte[10000];
+                    while ((bytesRead = is.read(contents)) != -1)
+                        bos.write(contents, 0, bytesRead);
+
+                    bos.flush();
+                    is.close();
+                    bos.close();
+                    fos.flush();
+                    fos.close();
+                    socket.close();
+                    System.out.println("File:" + path + " read succesfully!");
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+
+        }).start();
+
     }
 
     // Transfering file (reading and exporting)
@@ -80,7 +119,7 @@ public class Client {
     private void directories(String args[], String fileDetail) throws Exception {
         new Thread(new Runnable() {
             public void run() {
-                System.out.println("Folder: " + args[1]);
+                System.out.println("Folder: " + args[1]); // file path
                 try {
                     // clientIp, tcpport, filepath, operation, detail
                     service_stub.directoryimpl(args[5], args[4], args[1], args[0], fileDetail);
@@ -88,10 +127,22 @@ public class Client {
                     e.printStackTrace();
                 }
             }
-
         }).start();
+    }
 
-        // service_stub.put(args[5], args[4], args[1]); // client ip, tcp port, filepath
+    // TODO
+    private void authShare(String args[]) throws Exception {
+        new Thread(new Runnable() {
+            public void run() {
+                System.out.println("Trying to share Folder: " + args[1]); // file path
+                try {
+                    // clientIp, tcpport, filepath, operation, detail
+                    // service_stub.directoryimpl(args[5], args[4], args[1], args[0], fileDetail);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+        }).start();
     }
 
     public void run() throws Exception {
@@ -103,10 +154,10 @@ public class Client {
     // client only method
     public String authorizeCheck(String file, String clientIP) {
         if (!fileLocation.containsKey(file)) {
-            return "new"; // new file
+            return "new";
         } else {
             if (fileLocation.get(file).contains(clientIP)) {
-                return "existing"; // rewriting file
+                return "existing";
             } else {
                 return "denied";
             }
@@ -127,28 +178,66 @@ public class Client {
             System.err.println("Bad usage. plz provide operation, filepath, masterip, master port, tcp port, your ip");
             System.exit(1);
         }
-        Client object = new Client(args[2], args[3], args[4]);
+        Client object = new Client(args[2], args[3]);
 
         // inserting or rewriting
         if (args[0].equalsIgnoreCase("put")) {
-            String detail = object.authorizeCheck(args[1], args[5]); // authorization check call
+            String detail = object.authorizeCheck(args[1], args[5]); // filepath, client ip
             if (detail.equals("denied")) {
                 System.err
-                        .println("Permission Denied: Because you don't have authorization to the " + args[5]);
+                        .println("Permission Denied: Because you don't have authorization to the " + args[1]);
                 System.exit(1);
             } else {
                 object.transfer(args, detail);
             }
         }
 
-        if (args[0].equalsIgnoreCase("mkdir")) {
-            String detail = object.authorizeCheck(args[1], args[5]);
+        if (args[0].equalsIgnoreCase("mkdir") || args[0].equalsIgnoreCase("create") || args[0]
+                .equalsIgnoreCase("rmdir") || args[0].equalsIgnoreCase("remove")) {
+            String detail = object.authorizeCheck(args[1], args[5]); // filepath, client ip
             if (detail.equals("denied")) {
                 System.err
-                        .println("Permission Denied: Because you don't have authorization to the " + args[5]);
+                        .println("Permission Denied: Because you don't have authorization to the " + args[1]);
                 System.exit(1);
             } else {
                 object.directories(args, detail);
+            }
+        }
+
+        if (args[0].equalsIgnoreCase("rename")) {
+            if (args[1].contains(",")) {
+                String detail = object.authorizeCheck(args[1], args[5]); // file path, client ip
+                if (detail.equals("denied")) {
+                    System.err
+                            .println("Permission Denied: Because you don't have authorization to the " + args[1]);
+                    System.exit(1);
+                } else {
+                    object.directories(args, detail);
+                }
+            } else {
+                System.err.println("Incorrect args: plz give the newfile and oldfile");
+                System.exit(1);
+            }
+        }
+
+        if (args[0].equalsIgnoreCase("read")) {
+            if (object.authorizeCheck(args[1], args[5]).equals("denied")) {
+                System.err
+                        .println("Permission Denied: Because you don't have authorization to the " + args[1]);
+                System.exit(1);
+            } else {
+                object.getFile(args);
+            }
+        }
+
+        // TODO
+        if (args[0].equalsIgnoreCase("share")) {
+            if (object.authorizeCheck(args[1], args[5]).equals("denied")) {
+                System.err
+                        .println("Permission Denied: Because you don't have authorization to the " + args[1]);
+                System.exit(1);
+            } else {
+                object.authShare(args);
             }
         }
 

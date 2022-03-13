@@ -9,7 +9,6 @@ import java.util.Map;
 
 public interface Storage extends Remote {
 
-        // master 1
         public String[] register(String IP_STORAGE_SERVER, int PORT_STORAGE_SERVER, String[] files,
                         Storage command_stub)
                         throws RemoteException, NotBoundException;
@@ -33,13 +32,17 @@ public interface Storage extends Remote {
 
         public void read(String path) throws IOException, RemoteException;
 
-        public boolean write(String IP, String PORT, String path, String fileDetail)
+        public boolean write(String path) throws UnknownHostException, IOException;
+
+        public boolean write(String clientIP, String PORT, String path, String fileDetail)
                         throws UnknownHostException, IOException;
 
         public boolean writePhaseTwo(String IP, String path) throws UnknownHostException, IOException;
 
         public boolean writePhaseone(String IP, String PORT, String path, String client)
                         throws UnknownHostException, IOException;
+
+        public boolean writeAbort(String IP) throws UnknownHostException, IOException;
 
         public List<String> getStorage(String file) throws RemoteException, FileNotFoundException, IOException;
 

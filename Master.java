@@ -33,9 +33,6 @@ public class Master extends UnicastRemoteObject implements Storage {
 
     private static ServerSocket ssock;
 
-    // private String[] files;
-    // String environment;
-
     // Constructor
     public Master() throws RemoteException {
         super();
@@ -49,11 +46,12 @@ public class Master extends UnicastRemoteObject implements Storage {
         } catch (Exception e) {
             e.printStackTrace();
             System.err.println("Error in getting file logs in master constructor");
+            System.exit(1);
         }
     }
 
     // relicas use this method to get registered of its instance
-    // Master method only -> 1
+    // Master method 1 -> replicas use
     public String[] register(String IP_STORAGE_SERVER, int PORT_STORAGE_SERVER, String[] files, Storage command_stub)
             throws RemoteException, NotBoundException {
 
@@ -70,6 +68,7 @@ public class Master extends UnicastRemoteObject implements Storage {
     }
 
     // get all files/folders names
+    // Master method 2
     private void getFiles() throws Exception {
         // String path = Paths.get("").toAbsolutePath().toString();
         File curDir = new File("."); // returns all files from the cur dir
@@ -79,6 +78,7 @@ public class Master extends UnicastRemoteObject implements Storage {
     }
 
     // binding remote object with given name in registry
+    // Master method 3
     public synchronized void start(String port, String tcp) throws NumberFormatException, IOException {
         // Creates and exports a Registry instance on the local host that accepts
         // requests on the specified port.
@@ -95,6 +95,7 @@ public class Master extends UnicastRemoteObject implements Storage {
     }
 
     // writing into master server and replicas
+    // Master method 4 -> client use
     public boolean write(String clientIP, String PORT, String path, String fileDetail)
             throws UnknownHostException, IOException {
 
@@ -109,7 +110,7 @@ public class Master extends UnicastRemoteObject implements Storage {
                     BufferedOutputStream bos = new BufferedOutputStream(fos);
                     InputStream is = socket.getInputStream();
 
-                    // TODO : Implement writing on server after replica writing is successful
+                    // Writing into Master
                     int bytesRead = 0;
                     byte[] contents = new byte[10000];
                     while ((bytesRead = is.read(contents)) != -1) {
@@ -119,7 +120,7 @@ public class Master extends UnicastRemoteObject implements Storage {
 
                     // Writing into the replicas
                     System.out.println("Writing into the replicas has started.. ");
-                    List<Boolean> concurrencylist = new ArrayList<>();
+                    List<Storage> failedList = new ArrayList<>(); // to store failed replicas
                     for (Storage stub : replicaInstances) {
                         List<String> s = replicaDetails.get(stub);
 
@@ -128,15 +129,21 @@ public class Master extends UnicastRemoteObject implements Storage {
                         os.write(contents);
 
                         // replicaip, replica tcp port, file path and clientip
-                        boolean flag = stub.writePhaseone(s.get(0), s.get(1), path, clientIP);
-                        concurrencylist.add(flag);
+                        if (!stub.writePhaseone(s.get(0), s.get(1), path, clientIP))
+                            failedList.add(stub);
 
                         os.flush();
                         os.close();
                         socketre.close();
                     }
 
-                    if (!concurrencylist.contains(false)) {
+                    bos.flush();
+                    bos.close();
+                    fos.flush();
+                    fos.close();
+                    socket.close();
+
+                    if (failedList.size() == 0) {
                         for (Storage stub : replicaInstances)
                             stub.writePhaseTwo(clientIP, path); // clientip and file path
 
@@ -145,18 +152,15 @@ public class Master extends UnicastRemoteObject implements Storage {
                             fileLocation.get(path).add(clientIP);
                             System.out.println("Client: " + clientIP + " has the access to File: " + path);
                         }
-
-                        // if (fileLocation.get(path).size() == 0){
-                        // fileLocation.get(path)
-                        // }
-
+                    } else {
+                        File f = new File(path);
+                        f.delete();
+                        for (Storage stub : replicaInstances)
+                            if (!failedList.contains(stub))
+                                stub.writeAbort(clientIP);
+                        System.err.println("File: " + path + " faile to write");
                     }
 
-                    bos.flush();
-                    bos.close();
-                    fos.flush();
-                    fos.close();
-                    socket.close();
                     System.out.println("File saved successfully! at Primary server");
 
                 } catch (Exception e) {
@@ -166,7 +170,6 @@ public class Master extends UnicastRemoteObject implements Storage {
 
         }).start();
         return true;
-
     }
 
     // Reading from file
@@ -174,6 +177,9 @@ public class Master extends UnicastRemoteObject implements Storage {
         new Thread(new Runnable() {
             public void run() {
                 try {
+                    Socket socket = ssock.accept(); // a
+                    OutputStream os = socket.getOutputStream(); // a
+
                     File file = new File(path);
                     FileInputStream fis = new FileInputStream(file);
                     BufferedInputStream bis = new BufferedInputStream(fis);
@@ -190,6 +196,7 @@ public class Master extends UnicastRemoteObject implements Storage {
                         }
                         contents = new byte[size];
                         bis.read(contents, 0, size);
+                        os.write(contents); // a
                         fileContentStorage.put(path, contents); // Assuming max file size is 10kb
                     }
                     bis.close();
@@ -216,15 +223,9 @@ public class Master extends UnicastRemoteObject implements Storage {
 
             // PHASE 2
             if (failedList.size() != 0) {
-                for (Storage stub : replicaInstances) {
-                    if (!failedList.contains(stub)) {
-                        // TODO: Impl in replica block and master block
-                        // before del read the contents of the file
-                        // if its folder.. ignore
-
-                    }
-                }
-
+                for (Storage stub : replicaInstances)
+                    if (!failedList.contains(stub))
+                        stub.write(path);
                 System.err.println("Folder/File: " + path + " is failed..");
                 return false;
             } else {
@@ -242,104 +243,23 @@ public class Master extends UnicastRemoteObject implements Storage {
     // create file/folder with 2pc
     public boolean create(String path, String type) throws RemoteException, IOException {
         try {
-
             List<Storage> failedList = new ArrayList<>(); // to store failed replicas
-
             // PHASE 1
-            for (Storage stub : replicaInstances) {
-                // file path, mkdir, new/existing
-                if (!stub.create(path, type)) {
+            for (Storage stub : replicaInstances)
+                if (!stub.create(path, type)) // file path, mkdir, new/existing
                     failedList.add(stub);
-                }
-            }
 
             // phase 2
             if (failedList.size() != 0) {
-                for (Storage stub : replicaInstances) {
-                    if (!failedList.contains(stub)) {
+                for (Storage stub : replicaInstances)
+                    if (!failedList.contains(stub))
                         stub.remove(path);
-                    }
-                }
                 System.err.println("Folder/File: " + path + " is failed..");
                 return false;
             } else {
                 System.out.println("Folder/File: " + path + "created successfully");
                 return true;
             }
-
-            //
-
-            // for directory
-            // if (type.equals("mkdir")) {
-            // if (!serverpathdir.isDirectory()) { // not a directory or doesnt exist
-            // // mkdir = true: if new, false: if already exists
-            // if (serverpathdir.mkdir()) { // if folder got created at server
-
-            // List<Storage> failedList = new ArrayList<>(); // to store failed replicas
-
-            // // Creating and getting replies (phase one)
-            // for (Storage stub : replicaInstances) {
-            // // file path, mkdir, new/existing
-            // if (!stub.create(path, type)) {
-            // failedList.add(stub);
-            // }
-            // }
-
-            // // phase 2
-            // if (failedList.size() != 0) {
-            // for (Storage stub : replicaInstances) {
-            // if (!failedList.contains(stub)) {
-            // stub.remove(path);
-            // }
-            // }
-            // System.err.println("Folder: " + path + " is failed..");
-            // } else {
-            // System.out.println("Folder: " + path + "created successfully");
-            // }
-
-            // } else {
-            // System.err.println("Failed to create folder " + path + " in master server");
-            // }
-
-            // } else {
-            // System.err.println("directory given by already exists in master server");
-            // }
-
-            // } // for file
-            // else {
-            // if (!serverpathdir.isFile()) {
-
-            // if (serverpathdir.createNewFile()) {
-
-            // // Same impl as the mkdir folder above
-            // List<Storage> failedList = new ArrayList<>(); // to store failed replicas
-
-            // // Creating and getting replies (phase one)
-            // for (Storage stub : replicaInstances) {
-            // // file path, mkdir, new/existing
-            // if (!stub.create(path, type)) {
-            // failedList.add(stub);
-            // }
-            // }
-
-            // // phase 2
-            // if (failedList.size() != 0) {
-            // for (Storage stub : replicaInstances) {
-            // if (!failedList.contains(stub)) {
-            // stub.remove(path);
-            // }
-            // }
-            // System.err.println("file: " + path + " is failed..");
-            // } else {
-            // System.out.println("file: " + path + "created successfully");
-            // }
-            // }
-
-            // } else {
-            // System.err.println("file given already exists in master server");
-            // }
-            // }
-
         } catch (Exception e) {
             e.printStackTrace();
             return false;
@@ -350,9 +270,7 @@ public class Master extends UnicastRemoteObject implements Storage {
     public boolean rename(String newFile, String oldFile) throws RemoteException, IOException {
 
         try {
-
             List<Storage> failedList = new ArrayList<>(); // to store failed replicas
-
             // PHASE 1
             for (Storage stub : replicaInstances)
                 if (!stub.rename(newFile, oldFile))
@@ -360,11 +278,9 @@ public class Master extends UnicastRemoteObject implements Storage {
 
             // phase 2
             if (failedList.size() != 0) {
-                for (Storage stub : replicaInstances) {
-                    if (!failedList.contains(stub)) {
+                for (Storage stub : replicaInstances)
+                    if (!failedList.contains(stub))
                         stub.rename(oldFile, newFile);
-                    }
-                }
                 System.err.println("Folder/File: " + oldFile + " renaming failed... ");
                 return false;
             } else {
@@ -378,24 +294,26 @@ public class Master extends UnicastRemoteObject implements Storage {
         }
     }
 
-    // TODO
     public boolean directoryimpl(String clientIP, String PORT, String path, String type, String fileDetail)
             throws UnknownHostException, IOException, SecurityException {
 
         new Thread(new Runnable() {
             public void run() {
-                System.out.println("Folder: " + path);
+                System.out.println("Working on Folder/File: " + path);
                 try {
                     File serverpathdir = new File(path);
                     // Creating dir
                     if (type.equals("mkdir")) {
                         if (!serverpathdir.isDirectory()) { // not a directory or doesnt exist
                             // mkdir = true: if new, false: if already exists
-                            if (serverpathdir.mkdir()) { // if folder got created at server
-                                if (create(path, type))
-                                    serverpathdir.delete();
+                            if (create(path, type)) { // if folder got created at server
+                                serverpathdir.mkdir();
+                                List<String> temp = new ArrayList<>();
+                                temp.add(clientIP);
+                                fileLocation.put(path, temp);
+                                System.out.println("Folder: " + path + " successfully created.. ");
                             } else {
-                                System.err.println("Failed to create folder " + path + " in master server");
+                                System.err.println("Failed to create folder " + path);
                             }
                         } else {
                             System.err.println("directory given by " + clientIP + " already exists in master server");
@@ -405,11 +323,14 @@ public class Master extends UnicastRemoteObject implements Storage {
                     // Creating File
                     else if (type.equals("create")) {
                         if (!serverpathdir.isFile()) {
-                            if (serverpathdir.createNewFile()) {
-                                if (create(path, type))
-                                    serverpathdir.delete();
+                            if (create(path, type)) {
+                                serverpathdir.createNewFile();
+                                List<String> temp = new ArrayList<>();
+                                temp.add(clientIP);
+                                fileLocation.put(path, temp);
+                                System.out.println("File: " + path + " successfully created.. ");
                             } else {
-                                System.err.println("Failed to create file " + path + " in master server");
+                                System.err.println("Failed to create file " + path);
                             }
                         } else {
                             System.err.println("file given already exists in master server");
@@ -426,6 +347,7 @@ public class Master extends UnicastRemoteObject implements Storage {
                             } else {
                                 if (remove(path)) {
                                     serverpathdir.delete();
+                                    fileLocation.remove(path);
                                     System.out.println("Folder: " + path + " successfully deleted.. ");
                                 } else {
                                     System.err.println("Failed to delete the folder: " + path);
@@ -441,6 +363,7 @@ public class Master extends UnicastRemoteObject implements Storage {
                         if (serverpathdir.isFile()) {
                             if (remove(path)) {
                                 serverpathdir.delete();
+                                fileLocation.remove(path);
                                 System.out.println("file: " + path + " successfully deleted.. ");
                             } else {
                                 System.err.println("Failed to delete the file: " + path);
@@ -463,6 +386,8 @@ public class Master extends UnicastRemoteObject implements Storage {
                                 if (o.isDirectory() || o.isFile()) {
                                     if (rename(newFile, oldFile)) {
                                         o.renameTo(n);
+                                        fileLocation.put(newFile, fileLocation.get(oldFile));
+                                        fileLocation.remove(oldFile);
                                     } else {
                                         System.err.println("Failed to rename the file/dir");
                                     }
@@ -485,11 +410,30 @@ public class Master extends UnicastRemoteObject implements Storage {
 
     }
 
+    private void authShare(List<String> iplist, String path, String operation) {
+        new Thread(new Runnable() {
+            public void run() {
+                List<String> list = fileLocation.get(path);
+                if (operation.equals("share"))
+                    list.addAll(iplist);
+                else
+                    list.removeAll(iplist);
+
+                fileLocation.put(path, list);
+            }
+        }).start();
+    }
+
     public List<String> list() throws Exception {
         return new ArrayList<>(fileLocation.keySet());
     }
 
-    public Map<String, List<String>> getFileMap() throws Exception {
+    /**
+     * @author Haravind rajula
+     * @param none
+     * @return Map<String, List<String>>
+     */
+    public Map<String, List<String>> getFileMap() throws Exception { // Master method only
         return fileLocation;
     }
 
@@ -519,8 +463,8 @@ public class Master extends UnicastRemoteObject implements Storage {
         }
 
         new Master().start(args[1], args[2]);
-        System.out.println("\n Master/Primary Server is listening on port = " + args[1]); // args[1] is port number
-        System.out.println("\n Socket listening on port : " + args[2]);
+        System.out.println("\n Master/Primary Server is listening on port = " + args[1]); // port number
+        System.out.println("Socket listening on port : " + args[2]); // tcp port
 
     }
 
@@ -558,6 +502,18 @@ public class Master extends UnicastRemoteObject implements Storage {
     @Override
     public boolean directoryimplReplica(String path, String type, String fileDetail)
             throws UnknownHostException, IOException {
+        // TODO Auto-generated method stub
+        return false;
+    }
+
+    @Override
+    public boolean write(String path) throws UnknownHostException, IOException {
+        // TODO Auto-generated method stub
+        return false;
+    }
+
+    @Override
+    public boolean writeAbort(String IP) throws UnknownHostException, IOException {
         // TODO Auto-generated method stub
         return false;
     }
