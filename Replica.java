@@ -1,5 +1,7 @@
+import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.File;
+import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
@@ -25,7 +27,8 @@ public class Replica extends UnicastRemoteObject implements Storage {
     private static int replicaPort;
     private String[] files;
     public Storage storage;
-    private ConcurrentHashMap<String, byte[]> isolatedStorage = new ConcurrentHashMap<String, byte[]>();
+    private ConcurrentHashMap<String, byte[]> isolatedStorage;
+    private ConcurrentHashMap<String, byte[]> fileContentStorage;
     private static ServerSocket ssock;
     // private static Socket socket;
 
@@ -47,6 +50,8 @@ public class Replica extends UnicastRemoteObject implements Storage {
         masterIP = args[2];
         masterPort = Integer.parseInt(args[3]);
         tcpPort = Integer.parseInt(args[4]);
+        isolatedStorage = new ConcurrentHashMap<String, byte[]>();
+        fileContentStorage = new ConcurrentHashMap<String, byte[]>();
 
         ssock = new ServerSocket(tcpPort);
 
@@ -138,45 +143,63 @@ public class Replica extends UnicastRemoteObject implements Storage {
             System.err.println("The folder can't be deleted because it has the files/subdir in it");
             return false;
         }
+        read(path); // before deleting it store the contents
         return dir.delete();
     }
 
-    // Writing file
-    public boolean write(String IP, String PORT, String path) throws UnknownHostException, IOException {
+    // reading block used before deleting file
+    public void read(String path) throws RemoteException {
         new Thread(new Runnable() {
             public void run() {
-                System.out.println("File: " + path);
                 try {
-                    Socket socket = ssock.accept();
-
-                    byte[] contents = new byte[10000];
-                    FileOutputStream fos = new FileOutputStream(path);
-                    BufferedOutputStream bos = new BufferedOutputStream(fos);
-                    InputStream is = socket.getInputStream();
-
-                    int bytesRead = 0;
-                    while ((bytesRead = is.read(contents)) != -1) {
-                        System.out.println(bytesRead);
-
-                        bos.write(contents, 0, bytesRead);
-
-                        // bos.write(contents);
-                        System.out.println("haravind");
+                    File file = new File(path);
+                    if (file.isFile()) {
+                        FileInputStream fis = new FileInputStream(file);
+                        BufferedInputStream bis = new BufferedInputStream(fis);
+                        byte[] contents;
+                        long fileLength = file.length();
+                        long current = 0;
+                        while (current != fileLength) {
+                            int size = 10000;
+                            if (fileLength - current >= size)
+                                current += size;
+                            else {
+                                size = (int) (fileLength - current);
+                                current = fileLength;
+                            }
+                            contents = new byte[size];
+                            bis.read(contents, 0, size);
+                            fileContentStorage.put(path, contents); // Assuming max file size is 10kb
+                        }
+                        bis.close();
+                    } else {
+                        return;
                     }
-
-                    System.out.println("stub write completed");
-                    bos.flush();
-                    bos.close();
-                    fos.flush();
-                    fos.close();
-                    socket.close();
-                    System.out.println("File saved successfully! at Primary server");
-
                 } catch (Exception e) {
                     e.printStackTrace();
                 }
             }
+        }).start();
+    }
 
+    // Writing file if deleting file failed
+    public boolean write(String path) throws UnknownHostException, IOException {
+        new Thread(new Runnable() {
+            public void run() {
+                System.out.println("File: " + path);
+                try {
+                    FileOutputStream fos = new FileOutputStream(path);
+                    BufferedOutputStream bos = new BufferedOutputStream(fos);
+                    bos.write(fileContentStorage.get(path));
+                    bos.flush();
+                    bos.close();
+                    fos.flush();
+                    fos.close();
+                    fileContentStorage.remove(path);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
         }).start();
         return true;
     }
@@ -206,20 +229,31 @@ public class Replica extends UnicastRemoteObject implements Storage {
 
     // Write : 2pc (phase2)
     public boolean writePhaseTwo(String IP, String path) throws UnknownHostException, IOException {
-
         new Thread(new Runnable() {
             public void run() {
                 System.out.println("File: " + path + " is in phase two & time: " + System.nanoTime());
                 try {
                     FileOutputStream fos = new FileOutputStream(path);
                     BufferedOutputStream bos = new BufferedOutputStream(fos);
-                    System.out.println(isolatedStorage.keySet());
-                    // System.out.println(isolatedStorage.get(IP).toString());
                     bos.write(isolatedStorage.get(IP));
                     bos.flush();
                     bos.close();
                     fos.flush();
                     fos.close();
+                    isolatedStorage.remove(IP);
+                } catch (Exception e) {
+                    e.printStackTrace();
+                }
+            }
+        }).start();
+        return true;
+    }
+
+    // Abort Write 2PC
+    public boolean writeAbort(String IP) throws UnknownHostException, IOException {
+        new Thread(new Runnable() {
+            public void run() {
+                try {
                     isolatedStorage.remove(IP);
                 } catch (Exception e) {
                     e.printStackTrace();
@@ -265,18 +299,6 @@ public class Replica extends UnicastRemoteObject implements Storage {
     }
 
     @Override
-    public byte[] read() throws RemoteException {
-        // TODO Auto-generated method stub
-        return null;
-    }
-
-    @Override
-    public void read(String path) throws IOException, RemoteException {
-        // TODO Auto-generated method stub
-
-    }
-
-    @Override
     public Map<String, List<String>> getFileMap() throws Exception {
         // TODO Auto-generated method stub
         return null;
@@ -301,6 +323,12 @@ public class Replica extends UnicastRemoteObject implements Storage {
             throws UnknownHostException, IOException {
         // TODO Auto-generated method stub
         return false;
+    }
+
+    @Override
+    public byte[] read() throws RemoteException {
+        // TODO Auto-generated method stub
+        return null;
     }
 
 }
