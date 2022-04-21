@@ -2,7 +2,6 @@ import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
@@ -32,6 +31,7 @@ public class Master extends UnicastRemoteObject implements Storage {
     private ConcurrentHashMap<String, byte[]> fileContentStorage;
 
     private static ServerSocket ssock;
+    private static Socket socket;
 
     // Constructor
     public Master() throws RemoteException {
@@ -52,7 +52,7 @@ public class Master extends UnicastRemoteObject implements Storage {
 
     // relicas use this method to get registered of its instance
     // Master method 1 -> replicas use
-    public String[] register(String IP_STORAGE_SERVER, int PORT_STORAGE_SERVER, String[] files, Storage command_stub)
+    public String[] register(String IP_STORAGE_SERVER, int PORT_STORAGE_SERVER, Storage command_stub)
             throws RemoteException, NotBoundException {
 
         replicaInstances.add(command_stub); // check if server is active
@@ -60,8 +60,8 @@ public class Master extends UnicastRemoteObject implements Storage {
 
         if (replicaDetails.get(command_stub) == null) {
             List<String> temp = new ArrayList<String>();
-            temp.add(new String(IP_STORAGE_SERVER));
-            temp.add(new String(PORT_STORAGE_SERVER + ""));
+            temp.add(new String(IP_STORAGE_SERVER)); // replica Ip
+            temp.add(new String(PORT_STORAGE_SERVER + "")); // replica tcp port
             replicaDetails.put(command_stub, temp);
         }
         return new String[2];
@@ -105,7 +105,8 @@ public class Master extends UnicastRemoteObject implements Storage {
 
                 try {
 
-                    Socket socket = ssock.accept();
+                    // Socket socket = ssock.accept();
+                    socket = ssock.accept();
                     FileOutputStream fos = new FileOutputStream(path);
                     BufferedOutputStream bos = new BufferedOutputStream(fos);
                     InputStream is = socket.getInputStream();
@@ -149,7 +150,10 @@ public class Master extends UnicastRemoteObject implements Storage {
 
                         // giving authorization block
                         if (fileDetail.equalsIgnoreCase("new")) {
-                            fileLocation.get(path).add(clientIP);
+                            List<String> lis = new ArrayList<>();
+                            lis.add(clientIP);
+                            fileLocation.put(path, lis);
+                            // fileLocation.get(path).add(clientIP);
                             System.out.println("Client: " + clientIP + " has the access to File: " + path);
                         }
                     } else {
@@ -158,7 +162,7 @@ public class Master extends UnicastRemoteObject implements Storage {
                         for (Storage stub : replicaInstances)
                             if (!failedList.contains(stub))
                                 stub.writeAbort(clientIP);
-                        System.err.println("File: " + path + " faile to write");
+                        System.err.println("File: " + path + " failed to write.");
                     }
 
                     System.out.println("File saved successfully! at Primary server");
@@ -177,9 +181,8 @@ public class Master extends UnicastRemoteObject implements Storage {
         new Thread(new Runnable() {
             public void run() {
                 try {
-                    Socket socket = ssock.accept(); // a
+                    socket = ssock.accept(); // a
                     OutputStream os = socket.getOutputStream(); // a
-
                     File file = new File(path);
                     FileInputStream fis = new FileInputStream(file);
                     BufferedInputStream bis = new BufferedInputStream(fis);
@@ -200,6 +203,7 @@ public class Master extends UnicastRemoteObject implements Storage {
                         fileContentStorage.put(path, contents); // Assuming max file size is 10kb
                     }
                     bis.close();
+                    socket.close();
                 } catch (Exception e) {
                     e.printStackTrace();
                     // return false;
@@ -268,7 +272,13 @@ public class Master extends UnicastRemoteObject implements Storage {
 
     // Renaming File/dir
     public boolean rename(String newFile, String oldFile) throws RemoteException, IOException {
+        // boolean res;
 
+        // new Thread(new Runnable() {
+        // public void run() { } }).start();
+        // int counter = -1;
+        // new Thread(new Runnable() {
+        // public void run() {
         try {
             List<Storage> failedList = new ArrayList<>(); // to store failed replicas
             // PHASE 1
@@ -282,16 +292,25 @@ public class Master extends UnicastRemoteObject implements Storage {
                     if (!failedList.contains(stub))
                         stub.rename(oldFile, newFile);
                 System.err.println("Folder/File: " + oldFile + " renaming failed... ");
+                // res = false;
                 return false;
+                // counter = 0;
             } else {
                 System.out.println("Folder/File: " + oldFile + " renamed to " + newFile + " successfully");
+                // res = true;
                 return true;
+                // counter = 1;
             }
 
         } catch (Exception e) {
             e.printStackTrace();
+            // res = false;
             return false;
+            // counter = 0;
         }
+
+        // } }).start();
+        // return res;
     }
 
     public boolean directoryimpl(String clientIP, String PORT, String path, String type, String fileDetail)
@@ -376,8 +395,8 @@ public class Master extends UnicastRemoteObject implements Storage {
                     // Renaming file/dir
                     else if (type.equals("rename")) {
                         if (path.contains(",")) {
-                            String newFile = path.split(",")[1];
-                            String oldFile = path.split(",")[0];
+                            String newFile = path.split(",")[0];
+                            String oldFile = path.split(",")[1];
                             File n = new File(newFile);
                             File o = new File(oldFile);
                             if (n.isDirectory() || n.isFile()) {
@@ -410,7 +429,7 @@ public class Master extends UnicastRemoteObject implements Storage {
 
     }
 
-    private void authShare(List<String> iplist, String path, String operation) {
+    public void authShare(List<String> iplist, String path, String operation) throws Exception {
         new Thread(new Runnable() {
             public void run() {
                 List<String> list = fileLocation.get(path);
@@ -469,24 +488,6 @@ public class Master extends UnicastRemoteObject implements Storage {
     }
 
     @Override
-    public byte[] read() throws RemoteException {
-        // TODO Auto-generated method stub
-        return null;
-    }
-
-    @Override
-    public List<String> getStorage(String file) throws RemoteException, FileNotFoundException, IOException {
-        // TODO Auto-generated method stub
-        return null;
-    }
-
-    @Override
-    public boolean put(String IP, String PORT, String path) throws Exception {
-        // TODO Auto-generated method stub
-        return false;
-    }
-
-    @Override
     public boolean writePhaseTwo(String IP, String path) throws UnknownHostException, IOException {
         // TODO Auto-generated method stub
         return false;
@@ -494,13 +495,6 @@ public class Master extends UnicastRemoteObject implements Storage {
 
     @Override
     public boolean writePhaseone(String IP, String PORT, String path, String client)
-            throws UnknownHostException, IOException {
-        // TODO Auto-generated method stub
-        return false;
-    }
-
-    @Override
-    public boolean directoryimplReplica(String path, String type, String fileDetail)
             throws UnknownHostException, IOException {
         // TODO Auto-generated method stub
         return false;

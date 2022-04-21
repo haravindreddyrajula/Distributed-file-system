@@ -1,7 +1,16 @@
 import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
+
+import javax.crypto.Cipher;
+import javax.crypto.spec.SecretKeySpec;
+
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.File;
@@ -9,6 +18,7 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.UnsupportedEncodingException;
 import java.net.InetAddress;
 import java.net.Socket;
 
@@ -19,46 +29,111 @@ public class Client {
     private String masterIP;
     private int masterPort;
     private Map<String, List<String>> fileLocation;
+    // private ServerSocket ssock_client;
+
+    // Security variables
+    private static SecretKeySpec secretKey;
+    private static byte[] key;
+    final String enKey = "secretkey";
 
     // constructor
-    public Client(String IP, String PORT) throws Exception {
+    public Client(String IP, String PORT, String tcp) throws Exception {
         this.masterIP = IP;
         this.masterPort = Integer.parseInt(PORT);
 
         master = LocateRegistry.getRegistry(masterIP, masterPort);
         service_stub = (Storage) master.lookup("Master");
         fileLocation = service_stub.getFileMap();
+
+        // ssock_client = new ServerSocket(Integer.parseInt(tcp));
     }
+
+    // Key setter
+    public static void setKey(final String myKey) {
+        MessageDigest sha = null;
+        try {
+            key = myKey.getBytes("UTF-8");
+            sha = MessageDigest.getInstance("SHA-1");
+            key = sha.digest(key);
+            key = Arrays.copyOf(key, 16);
+            secretKey = new SecretKeySpec(key, "AES");
+        } catch (NoSuchAlgorithmException | UnsupportedEncodingException e) {
+            e.printStackTrace();
+        }
+    }
+
+    // encrypt block
+    public static String encrypt(final String strToEncrypt, final String secret) {
+        try {
+            setKey(secret);
+            Cipher cipher = Cipher.getInstance("AES/ECB/PKCS5Padding");
+            cipher.init(Cipher.ENCRYPT_MODE, secretKey);
+            return Base64.getEncoder()
+                    .encodeToString(cipher.doFinal(strToEncrypt.getBytes("UTF-8")));
+        } catch (Exception e) {
+            System.out.println("Error while encrypting: " + e.toString());
+        }
+        return null;
+    }
+
+    // decrypt block
+    public static String decrypt(final String strToDecrypt, final String secret) {
+        try {
+            setKey(secret);
+            Cipher cipher = Cipher.getInstance("AES/ECB/PKCS5PADDING");
+            cipher.init(Cipher.DECRYPT_MODE, secretKey);
+            return new String(cipher.doFinal(Base64.getDecoder()
+                    .decode(strToDecrypt)));
+        } catch (Exception e) {
+            System.out.println("Error while decrypting: " + e.toString());
+        }
+        return null;
+    }
+
+    // String originalString = "sttttt";
+    // String encryptedString = encrypt(originalString, enKey);
+    // String decryptedString = decrypt(encryptedString, enKey);
 
     private void getFile(String args[]) throws Exception {
         String path = args[1];
-
+        // service_stub.read(path, args[2], args[4]);
+        // Socket socket = ssock_client.accept();
         new Thread(new Runnable() {
             public void run() {
                 System.out.println("Writing File: " + path);
                 try {
-                    // params : master server & port
-                    Socket socket = new Socket(InetAddress.getByName(args[2]), Integer.parseInt(args[4]));
-                    // client ip, tcp port, filepath, detial=[new, old]
-                    // service_stub.write(args[5], args[4], args[1], fileDetail);
                     service_stub.read(path);
+                    Socket socket = new Socket(InetAddress.getByName(args[2]), Integer.parseInt(args[4]));
+                    // OutputStream os = socket.getOutputStream();
+                    // os.write(new String("Hello").getBytes());
+                    // os.flush();
+                    // os.close();
+                    InputStream is = socket.getInputStream();
+
                     FileOutputStream fos = new FileOutputStream(path);
                     BufferedOutputStream bos = new BufferedOutputStream(fos);
-                    InputStream is = socket.getInputStream();
+
                     int bytesRead = 0;
                     byte[] contents = new byte[10000];
-                    while ((bytesRead = is.read(contents)) != -1)
+                    while ((bytesRead = is.read(contents)) != -1) {
+                        // bos.write(decrypt(contents, enKey), 0, bytesRead);
                         bos.write(contents, 0, bytesRead);
-
+                    }
+                    // System.out.println(new String(is.readAllBytes(), StandardCharsets.UTF_8));
+                    // bos.write(is.readAllBytes());
                     bos.flush();
-                    is.close();
+                    // is.close();
                     bos.close();
-                    fos.flush();
-                    fos.close();
+                    // fos.flush();
+                    // fos.close();
                     socket.close();
                     System.out.println("File:" + path + " read succesfully!");
+
                 } catch (Exception e) {
                     e.printStackTrace();
+                    System.out.println("exception");
+                } finally {
+
                 }
             }
 
@@ -72,7 +147,7 @@ public class Client {
 
         new Thread(new Runnable() {
             public void run() {
-                System.out.println("File: " + path);
+                System.out.println("Transfering File: " + path);
                 try {
                     Socket socket = new Socket(InetAddress.getByName(args[2]), Integer.parseInt(args[4]));
                     String anim = "|/-\\";
@@ -105,14 +180,19 @@ public class Client {
                     os.close();
                     bis.close();
                     socket.close();
-                    System.out.println("File sent succesfully!");
+
                 } catch (Exception e) {
                     e.printStackTrace();
                 }
             }
 
         }).start();
-        service_stub.write(args[5], args[4], args[1], fileDetail); // client ip, tcp port, filepath, detial=[new, old]
+        // client ip, tcp port, filepath, detial=[new, existing]
+        if (!service_stub.write(args[5], args[4], args[1], fileDetail)) {
+            System.out.println("\nError in writing file...");
+        } else {
+            System.out.println("File sent succesfully!");
+        }
     }
 
     // client only method
@@ -130,14 +210,15 @@ public class Client {
         }).start();
     }
 
-    // TODO
     private void authShare(String args[]) throws Exception {
         new Thread(new Runnable() {
             public void run() {
-                System.out.println("Trying to share Folder: " + args[1]); // file path
+                System.out.println("Trying to share Folder: " + args[1] + " with " + args[6]); // file path
                 try {
                     // clientIp, tcpport, filepath, operation, detail
                     // service_stub.directoryimpl(args[5], args[4], args[1], args[0], fileDetail);
+                    List<String> iplist = new ArrayList<>(Arrays.asList(args[6].split(",")));
+                    service_stub.authShare(iplist, args[1], args[0]);
                 } catch (Exception e) {
                     e.printStackTrace();
                 }
@@ -178,9 +259,10 @@ public class Client {
             System.err.println("Bad usage. plz provide operation, filepath, masterip, master port, tcp port, your ip");
             System.exit(1);
         }
-        Client object = new Client(args[2], args[3]);
+        Client object = new Client(args[2], args[3], args[4]);
 
         // inserting or rewriting
+        // args[0] -> operation [put]
         if (args[0].equalsIgnoreCase("put")) {
             String detail = object.authorizeCheck(args[1], args[5]); // filepath, client ip
             if (detail.equals("denied")) {
@@ -192,6 +274,7 @@ public class Client {
             }
         }
 
+        // args[0] -> mkdir, create, rmdir, remove
         if (args[0].equalsIgnoreCase("mkdir") || args[0].equalsIgnoreCase("create") || args[0]
                 .equalsIgnoreCase("rmdir") || args[0].equalsIgnoreCase("remove")) {
             String detail = object.authorizeCheck(args[1], args[5]); // filepath, client ip
@@ -204,6 +287,8 @@ public class Client {
             }
         }
 
+        // args[0] -> rename
+        // args[1] -> newfile.txt,oldfile.txt
         if (args[0].equalsIgnoreCase("rename")) {
             if (args[1].contains(",")) {
                 String detail = object.authorizeCheck(args[1], args[5]); // file path, client ip
@@ -220,18 +305,33 @@ public class Client {
             }
         }
 
+        // args[0] -> read
         if (args[0].equalsIgnoreCase("read")) {
-            if (object.authorizeCheck(args[1], args[5]).equals("denied")) {
-                System.err
-                        .println("Permission Denied: Because you don't have authorization to the " + args[1]);
-                System.exit(1);
-            } else {
-                object.getFile(args);
-            }
+            object.getFile(args);
+            // if (object.authorizeCheck(args[1], args[5]).equals("denied")) {
+            // System.err
+            // .println("Permission Denied: Because you don't have authorization to the " +
+            // args[1]);
+            // System.exit(1);
+            // } else {
+            // object.getFile(args);
+            // }
         }
 
-        // TODO
+        // args[0] -> share
+        // args[6] -> ip1,ip2,ip3
+        // if (args.length < 7) {
+        // System.err.println(
+        // "Bad usage. plz provide operation, filepath, masterip, master port, tcp port,
+        // your ip and ips which you want to share your file with..");
+        // System.exit(1);
+        // }
         if (args[0].equalsIgnoreCase("share")) {
+            if (args.length < 7) {
+                System.err.println(
+                        "Bad usage. plz provide operation, filepath, masterip, master port, tcp port, your ip and ips which you want to share your file with..");
+                System.exit(1);
+            }
             if (object.authorizeCheck(args[1], args[5]).equals("denied")) {
                 System.err
                         .println("Permission Denied: Because you don't have authorization to the " + args[1]);
