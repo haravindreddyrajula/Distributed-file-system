@@ -1,9 +1,16 @@
 import java.rmi.registry.LocateRegistry;
 import java.rmi.registry.Registry;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
+
+import javax.crypto.Cipher;
+import javax.crypto.spec.SecretKeySpec;
+
 import java.io.BufferedInputStream;
 import java.io.BufferedOutputStream;
 import java.io.File;
@@ -11,6 +18,7 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
+import java.io.UnsupportedEncodingException;
 import java.net.InetAddress;
 import java.net.Socket;
 
@@ -23,6 +31,11 @@ public class Client {
     private Map<String, List<String>> fileLocation;
     // private ServerSocket ssock_client;
 
+    // Security variables
+    private static SecretKeySpec secretKey;
+    private static byte[] key;
+    final String enKey = "secretkey";
+
     // constructor
     public Client(String IP, String PORT, String tcp) throws Exception {
         this.masterIP = IP;
@@ -34,6 +47,52 @@ public class Client {
 
         // ssock_client = new ServerSocket(Integer.parseInt(tcp));
     }
+
+    // Key setter
+    public static void setKey(final String myKey) {
+        MessageDigest sha = null;
+        try {
+            key = myKey.getBytes("UTF-8");
+            sha = MessageDigest.getInstance("SHA-1");
+            key = sha.digest(key);
+            key = Arrays.copyOf(key, 16);
+            secretKey = new SecretKeySpec(key, "AES");
+        } catch (NoSuchAlgorithmException | UnsupportedEncodingException e) {
+            e.printStackTrace();
+        }
+    }
+
+    // encrypt block
+    public static String encrypt(final String strToEncrypt, final String secret) {
+        try {
+            setKey(secret);
+            Cipher cipher = Cipher.getInstance("AES/ECB/PKCS5Padding");
+            cipher.init(Cipher.ENCRYPT_MODE, secretKey);
+            return Base64.getEncoder()
+                    .encodeToString(cipher.doFinal(strToEncrypt.getBytes("UTF-8")));
+        } catch (Exception e) {
+            System.out.println("Error while encrypting: " + e.toString());
+        }
+        return null;
+    }
+
+    // decrypt block
+    public static String decrypt(final String strToDecrypt, final String secret) {
+        try {
+            setKey(secret);
+            Cipher cipher = Cipher.getInstance("AES/ECB/PKCS5PADDING");
+            cipher.init(Cipher.DECRYPT_MODE, secretKey);
+            return new String(cipher.doFinal(Base64.getDecoder()
+                    .decode(strToDecrypt)));
+        } catch (Exception e) {
+            System.out.println("Error while decrypting: " + e.toString());
+        }
+        return null;
+    }
+
+    // String originalString = "sttttt";
+    // String encryptedString = encrypt(originalString, enKey);
+    // String decryptedString = decrypt(encryptedString, enKey);
 
     private void getFile(String args[]) throws Exception {
         String path = args[1];
@@ -57,6 +116,7 @@ public class Client {
                     int bytesRead = 0;
                     byte[] contents = new byte[10000];
                     while ((bytesRead = is.read(contents)) != -1) {
+                        // bos.write(decrypt(contents, enKey), 0, bytesRead);
                         bos.write(contents, 0, bytesRead);
                     }
                     // System.out.println(new String(is.readAllBytes(), StandardCharsets.UTF_8));
@@ -127,8 +187,8 @@ public class Client {
             }
 
         }).start();
-        if (!service_stub.write(args[5], args[4], args[1], fileDetail)) { // client ip, tcp port, filepath, detial=[new,
-                                                                          // old]
+        // client ip, tcp port, filepath, detial=[new, existing]
+        if (!service_stub.write(args[5], args[4], args[1], fileDetail)) {
             System.out.println("\nError in writing file...");
         } else {
             System.out.println("File sent succesfully!");
