@@ -7,6 +7,7 @@ import java.util.Arrays;
 import java.util.Base64;
 import java.util.List;
 import java.util.Map;
+import java.util.Scanner;
 
 import javax.crypto.Cipher;
 import javax.crypto.spec.SecretKeySpec;
@@ -17,6 +18,7 @@ import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
+// import java.io.LineNumberInputStream;
 import java.io.OutputStream;
 import java.io.UnsupportedEncodingException;
 import java.net.InetAddress;
@@ -29,23 +31,69 @@ public class Client {
     private String masterIP;
     private int masterPort;
     private Map<String, List<String>> fileLocation;
-    // private ServerSocket ssock_client;
+    private static Map<String, String> regClients;
+    private static Map<String, String> fileKeyMap;
+    private static String fileStatus;
 
     // Security variables
     private static SecretKeySpec secretKey;
     private static byte[] key;
-    final String enKey = "secretkey";
+    private String enKey = "secretkey";
 
-    // constructor
-    public Client(String IP, String PORT, String tcp) throws Exception {
+    // 5 argument constructor
+    public Client(String filePath, String IP, String PORT, String tcp, String clientIP) throws Exception {
         this.masterIP = IP;
         this.masterPort = Integer.parseInt(PORT);
 
         master = LocateRegistry.getRegistry(masterIP, masterPort);
         service_stub = (Storage) master.lookup("Master");
-        fileLocation = service_stub.getFileMap();
 
-        // ssock_client = new ServerSocket(Integer.parseInt(tcp));
+        regClients = service_stub.getRegisteredClients(); // getting <clients,secretkeys> mapping
+        fileLocation = service_stub.getFileMap(); // getting <filenames, list<clients>> mapping
+        fileKeyMap = service_stub.getFileKeys(); // getting <filepath, secretKey> mapping
+
+        fileStatus = authorizeCheck_(filePath, clientIP);
+
+    }
+
+    // Registering as a new user with master server
+    public void newClient(String clientIP) throws Exception {
+        System.out.println(
+                "\nWe see you are a new client. You may need to enter your secretKey for encryption process.");
+        System.out.print("Client: " + clientIP + " Type your secretkey: ");
+
+        Scanner in = new Scanner(System.in);
+        enKey = in.nextLine();
+        boolean authorized = service_stub.getValidate(clientIP, enKey);
+        if (!authorized) {
+            System.err.println("\nMaster server denied Access");
+            System.exit(1);
+        } else {
+            System.out.println("\nMaster server granted Access");
+        }
+    }
+
+    // Authorization Block
+    public String authorizeCheck_(String file, String clientIP) throws Exception {
+
+        if (!fileLocation.containsKey(file)) { // if file is new
+            if (regClients.containsKey(clientIP)) { // if client is not new
+                enKey = regClients.get(clientIP);
+            } else
+                newClient(clientIP);
+
+            return "new";
+        } else {
+            if (fileLocation.get(file).contains(clientIP)) {
+                if (!regClients.containsKey(clientIP))
+                    newClient(clientIP);
+                enKey = fileKeyMap.get(file);
+            } else {
+                System.err.println("Permission denied, You are not authorized to access this filepath: " + file);
+                System.exit(1);
+            }
+            return "exists";
+        }
     }
 
     // Key setter
@@ -66,7 +114,7 @@ public class Client {
     public static String encrypt(final String strToEncrypt, final String secret) {
         try {
             setKey(secret);
-            Cipher cipher = Cipher.getInstance("AES/ECB/PKCS5Padding");
+            Cipher cipher = Cipher.getInstance("AES/ECB/PKCS5Padding"); // AES/GCM/NoPadding AES/ECB/PKCS5Padding
             cipher.init(Cipher.ENCRYPT_MODE, secretKey);
             return Base64.getEncoder()
                     .encodeToString(cipher.doFinal(strToEncrypt.getBytes("UTF-8")));
@@ -80,7 +128,7 @@ public class Client {
     public static String decrypt(final String strToDecrypt, final String secret) {
         try {
             setKey(secret);
-            Cipher cipher = Cipher.getInstance("AES/ECB/PKCS5PADDING");
+            Cipher cipher = Cipher.getInstance("AES/ECB/PKCS5Padding");
             cipher.init(Cipher.DECRYPT_MODE, secretKey);
             return new String(cipher.doFinal(Base64.getDecoder()
                     .decode(strToDecrypt)));
@@ -89,10 +137,6 @@ public class Client {
         }
         return null;
     }
-
-    // String originalString = "sttttt";
-    // String encryptedString = encrypt(originalString, enKey);
-    // String decryptedString = decrypt(encryptedString, enKey);
 
     private void getFile(String args[]) throws Exception {
         String path = args[1];
