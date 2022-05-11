@@ -12,6 +12,7 @@ import java.rmi.RemoteException;
 import java.rmi.UnknownHostException;
 import java.rmi.registry.Registry;
 import java.rmi.server.UnicastRemoteObject;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -28,6 +29,10 @@ public class Replica extends UnicastRemoteObject implements Storage {
     private ConcurrentHashMap<String, byte[]> isolatedStorage = new ConcurrentHashMap<String, byte[]>();
     private ConcurrentHashMap<String, byte[]> fileContentStorage = new ConcurrentHashMap<String, byte[]>();
     private static ServerSocket ssock;
+    private static List<String> filesCounter = new ArrayList<>();
+    // private final static ScheduledExecutorService executorService =
+    // Executors.newSingleThreadScheduledExecutor();
+    // private static boolean shutValue = false;
 
     // Constructor -> No args
     public Replica() throws RemoteException {
@@ -54,6 +59,7 @@ public class Replica extends UnicastRemoteObject implements Storage {
 
         createServer(replicaIP, replicaPort);
         registerMaster(masterIP, masterPort);
+        getfiles();
     }
 
     // Registring with RMI
@@ -73,7 +79,14 @@ public class Replica extends UnicastRemoteObject implements Storage {
         Registry masterServer = LocateRegistry.getRegistry(masterIP, masterPort);
         Storage reg_stub = (Storage) masterServer.lookup("Master");
         reg_stub.register(replicaIP, tcpPort, storage);
-        System.out.println("Connected to Master successfully");
+        System.out.println("\nConnected to Master successfully");
+    }
+
+    private void getfiles() throws Exception {
+        File curDir = new File(".");
+        File[] filesList = curDir.listFiles();
+        for (File f : filesList)
+            filesCounter.add(f.getName());
     }
 
     // Renaming dir/file
@@ -96,47 +109,48 @@ public class Replica extends UnicastRemoteObject implements Storage {
     }
 
     // Creating dir/file
-    public boolean create(String path, String type) throws RemoteException, IOException {
-        File dir = new File(path);
+    public boolean create(String en_path, String operation, String clientIP) throws RemoteException, IOException {
+        File dir = new File(en_path);
 
         if (dir.isDirectory() || dir.isFile()) {
-            System.err.println("The path: " + path + " already exists");
+            System.err.println("The path: " + en_path + " already exists");
             return false;
         }
 
-        if (type.equals("mkdir")) {
-            System.out.println("The folder: " + path + " created..");
+        if (operation.equals("mkdir")) {
+            System.out.println("The folder: " + en_path + " created..");
             return dir.mkdir();
         } else {
-            System.out.println("The file: " + path + " created..");
+            System.out.println("The file: " + en_path + " created..");
             return dir.createNewFile();
         }
     }
 
     // removing dir/file
-    public boolean remove(String path) throws RemoteException, IOException {
+    public boolean remove(String en_path, String clientIP) throws RemoteException, IOException {
 
-        File dir = new File(path);
+        File dir = new File(en_path);
+        System.out.println("\nTrying to remove filepath: " + en_path);
         if (dir.isDirectory() && dir.list().length != 0) {
             System.err.println("The folder can't be deleted because it has the files/subdir in it");
             return false;
         }
-        read(path); // before deleting it store the contents
+        read(en_path, clientIP); // before deleting it store the contents
         boolean res = dir.delete();
         if (res)
-            System.out.println("The file/folder: " + path + "deleted..");
+            System.out.println("The file/folder: " + en_path + " successfully deleted..");
         else
-            System.out.println("Issue in deleting file/folder: " + path);
+            System.out.println("Issue in deleting file/folder: " + en_path);
 
         return res;
     }
 
     // reading block used before deleting file
-    public void read(String path) throws RemoteException {
+    public void read(String en_path, String clientIp) throws RemoteException {
         new Thread(new Runnable() {
             public void run() {
                 try {
-                    File file = new File(path);
+                    File file = new File(en_path);
                     if (file.isFile()) {
                         FileInputStream fis = new FileInputStream(file);
                         BufferedInputStream bis = new BufferedInputStream(fis);
@@ -153,7 +167,7 @@ public class Replica extends UnicastRemoteObject implements Storage {
                             }
                             contents = new byte[size];
                             bis.read(contents, 0, size);
-                            fileContentStorage.put(path, contents); // Assuming max file size is 10kb
+                            fileContentStorage.put(en_path, contents); // Assuming max file size is 10kb
                         }
                         bis.close();
                     } else {
@@ -167,19 +181,19 @@ public class Replica extends UnicastRemoteObject implements Storage {
     }
 
     // Writing file if deleting file failed
-    public boolean write(String path) throws UnknownHostException, IOException {
+    public boolean write(String en_path) throws UnknownHostException, IOException {
         new Thread(new Runnable() {
             public void run() {
-                System.out.println("File: " + path);
+                System.out.println("File: " + en_path);
                 try {
-                    FileOutputStream fos = new FileOutputStream(path);
+                    FileOutputStream fos = new FileOutputStream(en_path);
                     BufferedOutputStream bos = new BufferedOutputStream(fos);
-                    bos.write(fileContentStorage.get(path));
+                    bos.write(fileContentStorage.get(en_path));
                     bos.flush();
                     bos.close();
                     fos.flush();
                     fos.close();
-                    fileContentStorage.remove(path);
+                    fileContentStorage.remove(en_path);
                 } catch (Exception e) {
                     e.printStackTrace();
                 }
@@ -193,9 +207,7 @@ public class Replica extends UnicastRemoteObject implements Storage {
             throws UnknownHostException, IOException {
         new Thread(new Runnable() {
             public void run() {
-                // System.out.println("File: " + path + " is in phase one & time: " +
-                // System.nanoTime());
-                System.out.println("Writing File: " + path + " at replicas");
+                System.out.println("\nWriting FilePath: " + path + " at replicas");
                 try {
                     Socket socket = ssock.accept();
                     InputStream is = socket.getInputStream();
@@ -218,8 +230,6 @@ public class Replica extends UnicastRemoteObject implements Storage {
     public boolean writePhaseTwo(String IP, String path) throws UnknownHostException, IOException {
         new Thread(new Runnable() {
             public void run() {
-                // System.out.println("File: " + path + " is in phase two & time: " +
-                // System.nanoTime());
 
                 try {
                     FileOutputStream fos = new FileOutputStream(path);
@@ -229,6 +239,7 @@ public class Replica extends UnicastRemoteObject implements Storage {
                     bos.close();
                     fos.flush();
                     fos.close();
+                    filesCounter.add(path);
                     System.out.println("File saved successfully! at replica...");
                     isolatedStorage.remove(IP);
                 } catch (Exception e) {
@@ -253,6 +264,29 @@ public class Replica extends UnicastRemoteObject implements Storage {
         return true;
     }
 
+    public void shutSignal() throws Exception {
+        System.out.println("\nShutting down the Replica");
+        System.exit(1);
+    }
+
+    public boolean maliciousCheckReplica() throws Exception {
+        File curDir = new File(".");
+        File[] filesList = curDir.listFiles();
+        List<String> fileset = new ArrayList<String>();
+        for (File f : filesList)
+            fileset.add(f.getName());
+
+        if (filesCounter.size() != fileset.size()) {
+            System.out.println(
+                    "\n+---------------------------------------------------------------------------------------------------+");
+            System.out.println("malicious Activity detected at " + new java.util.Date());
+            System.out.println(
+                    "+---------------------------------------------------------------------------------------------------+");
+            return true;
+        }
+        return false;
+    }
+
     public static void main(String args[]) throws RemoteException, NotBoundException, UnknownHostException, Exception {
         // java Replica
         // args[0] -> replica ip
@@ -261,13 +295,30 @@ public class Replica extends UnicastRemoteObject implements Storage {
         // args[3] -> master port
         // args[4] -> tcp port
 
+        if (args[0].equalsIgnoreCase("--help")) {
+            System.out.println(
+                    "\n+---------------------------------------------------------------------------------------------------+");
+            System.out.println(
+                    "|\n| ___ Command: java Replica ReplicaIP Replicaport masterIP masterport tcpPort(unique)");
+            System.out.println(
+                    "+---------------------------------------------------------------------------------------------------+");
+            System.exit(1);
+        }
+
         if (args.length < 5) {
             System.err.println(
-                    "Incorrect arguments. Please give IP addresses and port numbers of your and master and tcp port");
+                    "Incorrect arguments. plz use command: java Replica --help");
             System.exit(1);
         }
 
         new Replica(args);
+    }
+
+    @Override
+    public String[] register(String IP_STORAGE_SERVER, int PORT_STORAGE_SERVER, Storage command_stub)
+            throws RemoteException, NotBoundException {
+        // TODO Auto-generated method stub
+        return null;
     }
 
     @Override
@@ -283,32 +334,47 @@ public class Replica extends UnicastRemoteObject implements Storage {
     }
 
     @Override
-    public boolean write(String IP, String PORT, String path, String fileDetail)
-            throws UnknownHostException, IOException {
-        // TODO Auto-generated method stub
-        return false;
-    }
-
-    // Unused by replica
-    @Override
-    public boolean directoryimpl(String clientIP, String PORT, String path, String type, String fileDetail)
-            throws UnknownHostException, IOException {
-        // TODO Auto-generated method stub
-        return false;
-    }
-
-    @Override
     public void authShare(List<String> iplist, String path, String operation) throws Exception {
         // TODO Auto-generated method stub
 
     }
 
-    // Unused by replica
     @Override
-    public String[] register(String IP_STORAGE_SERVER, int PORT_STORAGE_SERVER, Storage command_stub)
-            throws RemoteException, NotBoundException {
+    public boolean getAccess(String clientIP, String secretkey) throws Exception {
+        // TODO Auto-generated method stub
+        return false;
+    }
+
+    @Override
+    public boolean write(String clientIP, String PORT, String en_path, String path, String fileStatus)
+            throws UnknownHostException, IOException {
+        // TODO Auto-generated method stub
+        return false;
+    }
+
+    @Override
+    public Map<String, String> getRegisteredClients() throws Exception {
         // TODO Auto-generated method stub
         return null;
+    }
+
+    @Override
+    public boolean getValidate(String clientIP, String secretKey) throws Exception {
+        // TODO Auto-generated method stub
+        return false;
+    }
+
+    @Override
+    public Map<String, String> getFileKeys() throws Exception {
+        // TODO Auto-generated method stub
+        return null;
+    }
+
+    @Override
+    public boolean directoryimpl(String clientIP, String PORT, String path, String en_path, String operation,
+            String fileStatus) throws UnknownHostException, IOException {
+        // TODO Auto-generated method stub
+        return false;
     }
 
 }
