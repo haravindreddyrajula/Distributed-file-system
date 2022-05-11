@@ -20,18 +20,27 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Scanner;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 public class Master extends UnicastRemoteObject implements Storage {
 
-    private Map<String, List<String>> fileLocation;
-    private Map<Storage, List<String>> replicaDetails;
-    private Set<Storage> replicaInstances;
-    private ConcurrentHashMap<String, byte[]> fileContentStorage;
+    private static Map<String, List<String>> fileLocation; // <filenames,List<clientips>>
+    private static Map<Storage, List<String>> replicaDetails;
+    private static Set<Storage> replicaInstances;
+    private ConcurrentHashMap<String, byte[]> fileContentStorage; // <filepath, filecontent(bytes)>
+    private static Map<String, String> registeredClients; // <clientIP, secretKey>
+    private static Map<String, String> fileKeyMap; // <Filename, secretKey>
 
     private static ServerSocket ssock;
     private static Socket socket;
+
+    // periodic thread
+    private final static ScheduledExecutorService executorService = Executors.newSingleThreadScheduledExecutor();
 
     // Constructor
     public Master() throws RemoteException {
@@ -40,6 +49,10 @@ public class Master extends UnicastRemoteObject implements Storage {
         replicaDetails = new HashMap<Storage, List<String>>();
         replicaInstances = new HashSet<Storage>();
         fileContentStorage = new ConcurrentHashMap<String, byte[]>();
+        registeredClients = new HashMap<String, String>();
+        fileKeyMap = new HashMap<String, String>();
+
+        // executorService = Executors.newSingleThreadScheduledExecutor();
 
         try {
             getFiles();
@@ -50,8 +63,70 @@ public class Master extends UnicastRemoteObject implements Storage {
         }
     }
 
+    private static boolean maliciousCheck() throws Exception {
+        // ScheduledExecutorService exec =
+        // Executors.newSingleThreadScheduledExecutor();
+        // exec.scheduleAtFixedRate(new Runnable() {
+        // public void run() {
+
+        // }
+        // }, 0, 5, TimeUnit.SECONDS);
+        executorService.scheduleAtFixedRate(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    File curDir = new File(".");
+                    File[] filesList = curDir.listFiles();
+                    List<String> fileset = new ArrayList<String>();
+                    for (File f : filesList) {
+                        fileset.add(f.getName());
+                    }
+
+                    if (fileLocation.size() != fileset.size()) {
+                        System.out.println(
+                                "\n+---------------------------------------------------------------------------------------------------+");
+                        System.out.println("malicious Activity detected at master server " + new java.util.Date());
+                        System.out.println("\nShutting down the master server");
+                        System.exit(1);
+                        System.out.println(
+                                "+---------------------------------------------------------------------------------------------------+");
+                    } else {
+                        for (Storage stub : replicaInstances)
+                            if (stub.maliciousCheckReplica()) {
+                                System.out.println(
+                                        "Malicious Activity at one of the replica instance. Ordered for Replica Shutdown");
+                                stub.shutSignal();
+                            }
+                    }
+                } catch (Exception e) {
+                    // TODO: handle exception
+                }
+            }
+        }, 0, 5, TimeUnit.SECONDS);
+        return true;
+    }
+
+    // new user permission
+    public boolean getValidate(String clientIP, String secretKey) throws Exception {
+
+        System.out.println("\nClient: " + clientIP + " requesting access.. ");
+        System.out.print("Type y/n: ");
+
+        Scanner in = new Scanner(System.in);
+        String s = in.nextLine();
+
+        if (s.equalsIgnoreCase("y") || s.equalsIgnoreCase("yes")) {
+            registeredClients.put(clientIP, secretKey);
+            System.out.println("\nGranted access to the client: " + clientIP);
+            return true;
+        } else if (s.equalsIgnoreCase("n") || s.equalsIgnoreCase("no")) {
+            System.out.println("\nBlocked access to the client: " + clientIP);
+            return false;
+        }
+        return false;
+    }
+
     // relicas use this method to get registered of its instance
-    // Master method 1 -> replicas use
     public String[] register(String IP_STORAGE_SERVER, int PORT_STORAGE_SERVER, Storage command_stub)
             throws RemoteException, NotBoundException {
 
@@ -68,7 +143,6 @@ public class Master extends UnicastRemoteObject implements Storage {
     }
 
     // get all files/folders names
-    // Master method 2
     private void getFiles() throws Exception {
         // String path = Paths.get("").toAbsolutePath().toString();
         File curDir = new File("."); // returns all files from the cur dir
@@ -78,7 +152,6 @@ public class Master extends UnicastRemoteObject implements Storage {
     }
 
     // binding remote object with given name in registry
-    // Master method 3
     public synchronized void start(String port, String tcp) throws NumberFormatException, IOException {
         // Creates and exports a Registry instance on the local host that accepts
         // requests on the specified port.
@@ -95,19 +168,17 @@ public class Master extends UnicastRemoteObject implements Storage {
     }
 
     // writing into master server and replicas
-    // Master method 4 -> client use
-    public boolean write(String clientIP, String PORT, String path, String fileDetail)
+    public boolean write(String clientIP, String PORT, String en_path, String path, String fileStatus)
             throws UnknownHostException, IOException {
 
         new Thread(new Runnable() {
             public void run() {
-                System.out.println("Given File: " + path + " from client");
+                System.out.println("\nGiven Filepath: " + en_path + " from client");
 
                 try {
 
-                    // Socket socket = ssock.accept();
                     socket = ssock.accept();
-                    FileOutputStream fos = new FileOutputStream(path);
+                    FileOutputStream fos = new FileOutputStream(en_path);
                     BufferedOutputStream bos = new BufferedOutputStream(fos);
                     InputStream is = socket.getInputStream();
 
@@ -129,8 +200,8 @@ public class Master extends UnicastRemoteObject implements Storage {
                         OutputStream os = socketre.getOutputStream();
                         os.write(contents);
 
-                        // replicaip, replica tcp port, file path and clientip
-                        if (!stub.writePhaseone(s.get(0), s.get(1), path, clientIP))
+                        // replicaip, replica tcpport, file path and clientip
+                        if (!stub.writePhaseone(s.get(0), s.get(1), en_path, clientIP))
                             failedList.add(stub);
 
                         os.flush();
@@ -146,26 +217,26 @@ public class Master extends UnicastRemoteObject implements Storage {
 
                     if (failedList.size() == 0) {
                         for (Storage stub : replicaInstances)
-                            stub.writePhaseTwo(clientIP, path); // clientip and file path
+                            stub.writePhaseTwo(clientIP, en_path); // clientip and file path
 
                         // giving authorization block
-                        if (fileDetail.equalsIgnoreCase("new")) {
+                        if (fileStatus.equalsIgnoreCase("new")) {
                             List<String> lis = new ArrayList<>();
                             lis.add(clientIP);
                             fileLocation.put(path, lis);
-                            // fileLocation.get(path).add(clientIP);
-                            System.out.println("Client: " + clientIP + " has the access to File: " + path);
+                            fileKeyMap.put(path, registeredClients.get(clientIP));
+                            System.out.println("Client: " + clientIP + " has the access to Filepath: " + en_path);
                         }
                     } else {
-                        File f = new File(path);
+                        File f = new File(en_path);
                         f.delete();
                         for (Storage stub : replicaInstances)
                             if (!failedList.contains(stub))
                                 stub.writeAbort(clientIP);
-                        System.err.println("File: " + path + " failed to write.");
+                        System.err.println("File: " + en_path + " failed to write.");
                     }
 
-                    System.out.println("File saved successfully! at Primary server");
+                    System.out.println("Filepath saved successfully! at Primary server");
 
                 } catch (Exception e) {
                     e.printStackTrace();
@@ -177,13 +248,14 @@ public class Master extends UnicastRemoteObject implements Storage {
     }
 
     // Reading from file
-    public void read(String path) throws IOException, RemoteException {
+    public void read(String en_path, String clientIp) throws IOException, RemoteException {
+        System.out.println("\nClient: " + clientIp + " started reading the file: " + en_path);
         new Thread(new Runnable() {
             public void run() {
                 try {
-                    socket = ssock.accept(); // a
-                    OutputStream os = socket.getOutputStream(); // a
-                    File file = new File(path);
+                    socket = ssock.accept();
+                    OutputStream os = socket.getOutputStream();
+                    File file = new File(en_path);
                     FileInputStream fis = new FileInputStream(file);
                     BufferedInputStream bis = new BufferedInputStream(fis);
                     byte[] contents;
@@ -199,19 +271,19 @@ public class Master extends UnicastRemoteObject implements Storage {
                         }
                         contents = new byte[size];
                         bis.read(contents, 0, size);
-                        os.write(contents); // a
-                        fileContentStorage.put(path, contents); // Assuming max file size is 10kb
+                        os.write(contents);
+                        fileContentStorage.put(en_path, contents); // Assuming max file size is 10kb
                     }
                     bis.close();
                     socket.close();
+                    System.out.println(clientIp + " has read the file: " + en_path);
                 } catch (Exception e) {
                     e.printStackTrace();
-                    // return false;
                 }
-
             }
         }).start();
     }
+
 
     // Deleting file/folder with 2pc
     public boolean remove(String path) throws RemoteException, IOException {
