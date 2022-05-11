@@ -137,7 +137,7 @@ public class Client {
         }
         return null;
     }
-
+  
     // Reading from Master
     private void getFile(String args[]) throws Exception {
         String path = args[1];
