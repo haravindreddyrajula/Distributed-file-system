@@ -137,42 +137,31 @@ public class Client {
         }
         return null;
     }
-
+  
+    // Reading from Master
     private void getFile(String args[]) throws Exception {
         String path = args[1];
-        // service_stub.read(path, args[2], args[4]);
-        // Socket socket = ssock_client.accept();
+        String en_path = encrypt(args[1], enKey);
         new Thread(new Runnable() {
             public void run() {
-                System.out.println("Writing File: " + path);
+                System.out.println("\nReading File: " + path);
                 try {
-                    service_stub.read(path);
-                    Socket socket = new Socket(InetAddress.getByName(args[2]), Integer.parseInt(args[4]));
-                    // OutputStream os = socket.getOutputStream();
-                    // os.write(new String("Hello").getBytes());
-                    // os.flush();
-                    // os.close();
-                    InputStream is = socket.getInputStream();
 
+                    service_stub.read(en_path, args[5]); // en_path, client IP
+                    Socket socket = new Socket(InetAddress.getByName(args[2]), Integer.parseInt(args[4]));
+                    InputStream is = socket.getInputStream();
                     FileOutputStream fos = new FileOutputStream(path);
                     BufferedOutputStream bos = new BufferedOutputStream(fos);
-
-                    int bytesRead = 0;
                     byte[] contents = new byte[10000];
-                    while ((bytesRead = is.read(contents)) != -1) {
-                        // bos.write(decrypt(contents, enKey), 0, bytesRead);
-                        bos.write(contents, 0, bytesRead);
-                    }
-                    // System.out.println(new String(is.readAllBytes(), StandardCharsets.UTF_8));
-                    // bos.write(is.readAllBytes());
+                    contents = is.readAllBytes();
+                    String bytesToStringD = new String(contents, "UTF-8");
+                    var decryptedtext = decrypt(bytesToStringD, enKey);
+                    byte[] decryptedByte = decryptedtext.getBytes("UTF-8");
+                    bos.write(decryptedByte);
                     bos.flush();
-                    // is.close();
                     bos.close();
-                    // fos.flush();
-                    // fos.close();
                     socket.close();
-                    System.out.println("File:" + path + " read succesfully!");
-
+                    System.out.println("FilePath:" + path + " read succesfully!");
                 } catch (Exception e) {
                     e.printStackTrace();
                     System.out.println("exception");
@@ -180,18 +169,17 @@ public class Client {
 
                 }
             }
-
         }).start();
 
     }
 
-    // Transfering file (reading and exporting)
-    private void transfer(String args[], String fileDetail) throws Exception {
+    // Transfering file (reading & exporting)
+    private void transfer(String args[]) throws Exception {
         String path = args[1];
-
+        String en_path = encrypt(args[1], enKey);
         new Thread(new Runnable() {
             public void run() {
-                System.out.println("Transfering File: " + path);
+                System.out.println("\nTransfering File: " + path);
                 try {
                     Socket socket = new Socket(InetAddress.getByName(args[2]), Integer.parseInt(args[4]));
                     String anim = "|/-\\";
@@ -213,7 +201,11 @@ public class Client {
                         }
                         contents = new byte[size];
                         bis.read(contents, 0, size);
-                        os.write(contents);
+                        String bytesToStringE = new String(contents, "UTF-8");
+                        var datathatisencrypted = encrypt(bytesToStringE, enKey);
+                        byte[] actualContents = datathatisencrypted.getBytes("UTF-8");
+                        os.write(actualContents);
+                        // os.write(contents);
                         int x = (int) ((current * 100) / fileLength);
 
                         String data = "\r" + anim.charAt(x % anim.length()) + " " + x + "%" + "Sent";
@@ -224,29 +216,30 @@ public class Client {
                     os.close();
                     bis.close();
                     socket.close();
-
+                    System.out.println("File sent succesfully!");
                 } catch (Exception e) {
                     e.printStackTrace();
                 }
             }
-
         }).start();
-        // client ip, tcp port, filepath, detial=[new, existing]
-        if (!service_stub.write(args[5], args[4], args[1], fileDetail)) {
-            System.out.println("\nError in writing file...");
-        } else {
-            System.out.println("File sent succesfully!");
-        }
+        // client ip, tcp port, en_filepath, filepath, detial=[new, existing]
+        service_stub.write(args[5], args[4], en_path, path, fileStatus);
     }
 
-    // client only method
-    private void directories(String args[], String fileDetail) throws Exception {
+    // Directory main block
+    private void directories(String args[]) throws Exception {
         new Thread(new Runnable() {
             public void run() {
-                System.out.println("Folder: " + args[1]); // file path
+                String path = args[1];
+                String en_path = encrypt(args[1], enKey);
+                // if (args[0].equals("rename")){
+
+                // }
+                System.out.println("\nGiven Path: " + path); // file path
                 try {
-                    // clientIp, tcpport, filepath, operation, detail
-                    service_stub.directoryimpl(args[5], args[4], args[1], args[0], fileDetail);
+                    // clientIp, tcpport, filepath, en_filepath, operation, detail
+                    service_stub.directoryimpl(args[5], args[4], path, en_path, args[0], fileStatus);
+                    System.out.println("The operation " + args[0] + " is successful");
                 } catch (Exception e) {
                     e.printStackTrace();
                 }
@@ -254,18 +247,23 @@ public class Client {
         }).start();
     }
 
+    // sharing filepath permissions
     private void authShare(String args[]) throws Exception {
         new Thread(new Runnable() {
             public void run() {
-                System.out.println("Trying to share Folder: " + args[1] + " with " + args[6]); // file path
+                System.out.println("\nTrying to share path: " + args[1] + " with " + args[6]); // file path
                 try {
                     // clientIp, tcpport, filepath, operation, detail
                     // service_stub.directoryimpl(args[5], args[4], args[1], args[0], fileDetail);
                     List<String> iplist = new ArrayList<>(Arrays.asList(args[6].split(",")));
-                    service_stub.authShare(iplist, args[1], args[0]);
+                    String path = args[1];
+                    // String en_path = encrypt(path, enKey);
+                    service_stub.authShare(iplist, path, args[0]); // ips list, filepath, share
+                    System.out.println("Access shared to the clients: " + args[6]);
                 } catch (Exception e) {
                     e.printStackTrace();
                 }
+
             }
         }).start();
     }
@@ -291,6 +289,31 @@ public class Client {
 
     // CLI : java Client
     public static void main(String args[]) throws Exception {
+
+        if (args[0].equalsIgnoreCase("--help")) {
+            System.out.println(
+                    "\n+---------------------------------------------------------------------------------------------------+");
+            System.out.println(
+                    "|\n| ___ To send: java Client put filepath masterIP masterport tcpPort yourIp");
+            System.out.println(
+                    "+---------------------------------------------------------------------------------------------------+");
+            System.out.println(
+                    "|\n| ___ To Read: java Client read filepath masterIP masterport tcpPort yourIp");
+            System.out.println(
+                    "+---------------------------------------------------------------------------------------------------+");
+            System.out.println(
+                    "|\n| ___ To Rename: java Client rename newname,oldname masterIP masterport tcpPort yourIp");
+            System.out.println(
+                    "+---------------------------------------------------------------------------------------------------+");
+            System.out.println(
+                    "|\n| ___ To share access: java Client share filepath masterIP masterport tcpPort yourIp ip1,ip2,...");
+            System.out.println(
+                    "+---------------------------------------------------------------------------------------------------+");
+            System.exit(1);
+        }
+
+        System.out.println("\n******************************************************************************");
+
         // java client
         // args[0] -> operation [put/list/mkdir....]
         // args[1] -> file path
@@ -298,50 +321,32 @@ public class Client {
         // args[3] -> master port
         // args[4] -> tcp port
         // args[5] -> client ip
-
+        // args[6] -> secretkey or ip1,ip2,....
         if (args.length < 6) {
-            System.err.println("Bad usage. plz provide operation, filepath, masterip, master port, tcp port, your ip");
+            System.err.println("Bad usage. plz use command: java Client --help");
             System.exit(1);
         }
-        Client object = new Client(args[2], args[3], args[4]);
+        Client object = new Client(args[1], args[2], args[3], args[4], args[5]);
 
-        // inserting or rewriting
-        // args[0] -> operation [put]
-        if (args[0].equalsIgnoreCase("put")) {
-            String detail = object.authorizeCheck(args[1], args[5]); // filepath, client ip
-            if (detail.equals("denied")) {
-                System.err
-                        .println("Permission Denied: Because you don't have authorization to the " + args[1]);
-                System.exit(1);
-            } else {
-                object.transfer(args, detail);
-            }
-        }
+        // inserting or rewriting block, => args[0] -> operation [put]
+        if (args[0].equalsIgnoreCase("put"))
+            object.transfer(args);
 
         // args[0] -> mkdir, create, rmdir, remove
         if (args[0].equalsIgnoreCase("mkdir") || args[0].equalsIgnoreCase("create") || args[0]
                 .equalsIgnoreCase("rmdir") || args[0].equalsIgnoreCase("remove")) {
-            String detail = object.authorizeCheck(args[1], args[5]); // filepath, client ip
-            if (detail.equals("denied")) {
-                System.err
-                        .println("Permission Denied: Because you don't have authorization to the " + args[1]);
-                System.exit(1);
-            } else {
-                object.directories(args, detail);
-            }
+            object.directories(args);
         }
 
         // args[0] -> rename
         // args[1] -> newfile.txt,oldfile.txt
         if (args[0].equalsIgnoreCase("rename")) {
             if (args[1].contains(",")) {
-                String detail = object.authorizeCheck(args[1], args[5]); // file path, client ip
-                if (detail.equals("denied")) {
-                    System.err
-                            .println("Permission Denied: Because you don't have authorization to the " + args[1]);
-                    System.exit(1);
+                if (!fileStatus.equals("new")) {
+                    object.directories(args);
                 } else {
-                    object.directories(args, detail);
+                    System.err.println("\nNo such filepath exists at the master server");
+                    System.exit(1);
                 }
             } else {
                 System.err.println("Incorrect args: plz give the newfile and oldfile");
@@ -352,37 +357,16 @@ public class Client {
         // args[0] -> read
         if (args[0].equalsIgnoreCase("read")) {
             object.getFile(args);
-            // if (object.authorizeCheck(args[1], args[5]).equals("denied")) {
-            // System.err
-            // .println("Permission Denied: Because you don't have authorization to the " +
-            // args[1]);
-            // System.exit(1);
-            // } else {
-            // object.getFile(args);
-            // }
         }
 
         // args[0] -> share
         // args[6] -> ip1,ip2,ip3
-        // if (args.length < 7) {
-        // System.err.println(
-        // "Bad usage. plz provide operation, filepath, masterip, master port, tcp port,
-        // your ip and ips which you want to share your file with..");
-        // System.exit(1);
-        // }
         if (args[0].equalsIgnoreCase("share")) {
             if (args.length < 7) {
-                System.err.println(
-                        "Bad usage. plz provide operation, filepath, masterip, master port, tcp port, your ip and ips which you want to share your file with..");
+                System.err.println("Bad usage. plz use command: java Client --help");
                 System.exit(1);
             }
-            if (object.authorizeCheck(args[1], args[5]).equals("denied")) {
-                System.err
-                        .println("Permission Denied: Because you don't have authorization to the " + args[1]);
-                System.exit(1);
-            } else {
-                object.authShare(args);
-            }
+            object.authShare(args);
         }
 
     }

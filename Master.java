@@ -283,7 +283,8 @@ public class Master extends UnicastRemoteObject implements Storage {
             }
         }).start();
     }
-     // Deleting file/folder with 2pc
+
+    // Deleting file/folder with 2pc
     public boolean remove(String en_path, String clientIP) throws RemoteException, IOException {
         try {
             List<Storage> failedList = new ArrayList<>(); // to store failed replicas
